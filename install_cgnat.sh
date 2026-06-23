@@ -1398,7 +1398,7 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
-# Script de Sincronização MK-AUTH (USANDO EXPANSÃO DE VARIÁVEIS)
+# Script de Sincronização MK-AUTH
 cat > /usr/local/bin/sync_mkauth.sh << "SYNC"
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
@@ -1407,24 +1407,24 @@ cat > /usr/local/bin/sync_mkauth.sh << "SYNC"
 echo "$(date): Iniciando sincronização com MK-AUTH..."
 
 # Usando as variáveis do script principal (expandidas na criação)
-MK_AUTH_IP="$MK_AUTH_IP"
-MK_AUTH_USER="$MK_AUTH_USER"
-MK_AUTH_PASS="$MK_AUTH_PASS"
+MK_AUTH_IP="${MK_AUTH_IP}"
+MK_AUTH_USER="${MK_AUTH_USER}"
+MK_AUTH_PASS="${MK_AUTH_PASS}"
 DB_USER="root"
-DB_PASS="$MK_AUTH_DB_PASS"
+DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
 
 # Criar arquivo temporário
 TMP_FILE="/tmp/radacct_export_$$.csv"
 
 # Buscar dados via SSH
-sshpass -p "$MK_AUTH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $MK_AUTH_USER@$MK_AUTH_IP \
-"mysql -u $DB_USER -p$DB_PASS -B -N -e '
+sshpass -p "${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR ${MK_AUTH_USER}@${MK_AUTH_IP} \
+"mysql -u ${DB_USER} -p${DB_PASS} -B -N -e '
 SELECT 
     login,
     nome,
     ip
-FROM $DB_NAME.sis_cliente
+FROM ${DB_NAME}.sis_cliente
 WHERE cli_ativado = \"s\"
 AND ip IS NOT NULL
 AND ip != \"\"
@@ -1433,15 +1433,15 @@ SELECT
     username,
     nome,
     ip
-FROM $DB_NAME.sis_adicional
+FROM ${DB_NAME}.sis_adicional
 WHERE bloqueado = \"nao\"
 AND ip IS NOT NULL
 AND ip != \"\"
-'" > "$TMP_FILE"
+'" > "${TMP_FILE}"
 
-if [ -s "$TMP_FILE" ]; then
-    CLIENTES=$(wc -l < "$TMP_FILE")
-    echo "Dados exportados do MK-AUTH: $CLIENTES clientes"
+if [ -s "${TMP_FILE}" ]; then
+    CLIENTES=$(wc -l < "${TMP_FILE}")
+    echo "Dados exportados do MK-AUTH: ${CLIENTES} clientes"
     
     sudo -u postgres psql -d cgnat_logs << SQL
     TRUNCATE clientes;
@@ -1453,7 +1453,7 @@ if [ -s "$TMP_FILE" ]; then
     );
     
     COPY temp_clientes (login, nome, ip_privado)
-    FROM '$TMP_FILE'
+    FROM '${TMP_FILE}'
     DELIMITER E'\t'
     CSV;
     
@@ -1468,10 +1468,10 @@ if [ -s "$TMP_FILE" ]; then
     SELECT 'Clientes importados: ' || COUNT(*) as status FROM clientes;
 SQL
     
-    rm -f "$TMP_FILE"
+    rm -f "${TMP_FILE}"
 else
     echo "ERRO: Não foi possível exportar dados do MK-AUTH"
-    echo "Verifique a conectividade com $MK_AUTH_IP"
+    echo "Verifique a conectividade com ${MK_AUTH_IP}"
 fi
 
 echo "$(date): Sincronização concluída."
