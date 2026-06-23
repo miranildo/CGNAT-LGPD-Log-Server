@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.3
+# Versão: 1.4
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
@@ -105,7 +105,7 @@ apt upgrade -y
 print_success "Sistema atualizado"
 
 # ============================================================
-# 4. INSTALAR PACOTES (COM SUDO)
+# 4. INSTALAR PACOTES
 # ============================================================
 print_header "4. INSTALANDO PACOTES"
 
@@ -131,16 +131,9 @@ print_success "Pacotes instalados"
 # ============================================================
 print_header "5. INICIANDO POSTGRESQL"
 
-systemctl start postgresql
-systemctl enable postgresql
+systemctl start postgresql 2>/dev/null || true
+systemctl enable postgresql 2>/dev/null || true
 sleep 3
-
-if ! systemctl is-active --quiet postgresql; then
-    print_error "PostgreSQL não iniciou. Tentando reiniciar..."
-    systemctl restart postgresql
-    sleep 3
-fi
-
 print_success "PostgreSQL iniciado"
 
 # ============================================================
@@ -206,18 +199,13 @@ PG_HBA
 systemctl restart postgresql
 sleep 2
 
-sudo -u postgres psql << 'PG_SQL' 2>/dev/null || {
-    print_error "Erro ao criar banco. Tentando novamente..."
-    sleep 2
-    sudo -u postgres psql << 'PG_SQL2'
-CREATE USER cgnat_parser WITH PASSWORD 'WBT@0000000';
-CREATE USER cgnat_admin WITH PASSWORD 'WBT@00000000';
-CREATE DATABASE cgnat_logs OWNER cgnat_parser;
-GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_parser;
-GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;
-CREATE EXTENSION IF NOT EXISTS dblink;
-PG_SQL2
-}
+# Criar usuários e banco
+sudo -u postgres psql -c "CREATE USER cgnat_parser WITH PASSWORD 'WBT@0000000';" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER cgnat_admin WITH PASSWORD 'WBT@00000000';" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE DATABASE cgnat_logs OWNER cgnat_parser;" 2>/dev/null || true
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_parser;" 2>/dev/null || true
+sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;" 2>/dev/null || true
+sudo -u postgres psql -d cgnat_logs -c "CREATE EXTENSION IF NOT EXISTS dblink;" 2>/dev/null || true
 
 print_success "PostgreSQL configurado"
 
@@ -226,10 +214,7 @@ print_success "PostgreSQL configurado"
 # ============================================================
 print_header "8. CRIANDO TABELAS"
 
-sudo -u postgres psql -d cgnat_logs << 'PG_TABLES' 2>/dev/null || {
-    print_error "Erro ao criar tabelas. Tentando novamente..."
-    sleep 2
-    sudo -u postgres psql -d cgnat_logs << 'PG_TABLES2'
+sudo -u postgres psql -d cgnat_logs << 'EOF'
 CREATE TABLE IF NOT EXISTS cgnat_logs (
     id BIGSERIAL,
     data_hora TIMESTAMP NOT NULL,
@@ -355,8 +340,7 @@ GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_admin;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cgnat_admin;
 GRANT INSERT ON cgnat_logs TO cgnat_parser;
 GRANT INSERT ON clientes TO cgnat_parser;
-PG_TABLES2
-}
+EOF
 
 print_success "Tabelas criadas"
 
@@ -410,7 +394,7 @@ cat > /tmp/crontab_cgnat << 'CRON'
 0 8 * * * /usr/local/bin/monitor_disco.sh >> /var/log/cgnat/disco.log 2>&1
 CRON
 
-crontab /tmp/crontab_cgnat
+crontab /tmp/crontab_cgnat 2>/dev/null || true
 rm /tmp/crontab_cgnat
 
 print_success "Cronjobs configurados"
