@@ -1837,6 +1837,26 @@ chmod +x /usr/local/bin/create_cgnat_partition.sh
 
 print_success "Scripts criados"
 
+# ============================================================
+# 15.5. EXECUTAR SINCRONIZAÇÃO INICIAL
+# ============================================================
+print_header "15.5. EXECUTANDO SINCRONIZAÇÃO INICIAL"
+
+print_info "Populando tabela clientes com dados do MK-AUTH..."
+/usr/local/bin/sync_mkauth.sh
+
+if [ $? -eq 0 ]; then
+    print_success "Sincronização inicial concluída com sucesso!"
+    
+    # Mostrar quantos clientes foram importados
+    TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" | xargs)
+    print_info "Total de clientes importados: ${TOTAL_CLIENTES}"
+else
+    print_warning "Sincronização inicial falhou. Execute manualmente após a instalação:"
+    print_info "/usr/local/bin/sync_mkauth.sh"
+fi
+
+print_success "Sincronização inicial finalizada"
 
 # ============================================================
 # 16. CONCEDER PERMISSÃO USUARIO CGNAT-PARSER
