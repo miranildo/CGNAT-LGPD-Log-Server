@@ -129,18 +129,21 @@ apt install -y \
 print_success "Pacotes instalados"
 
 # ============================================================
-# 5. CRIAR DIRETÓRIOS
+# 5. CRIAR DIRETÓRIOS (CORRIGIDO)
 # ============================================================
 print_header "5. CRIANDO DIRETÓRIOS"
+
+# Criar diretórios
 mkdir -p /opt/cgnat
 mkdir -p /var/www/html/cgnat
 mkdir -p /var/log/cgnat
 mkdir -p /backup/cgnat
 mkdir -p /var/run/cgnat
 
+# Ajustar permissões (sem usar syslog:syslog)
 chown -R www-data:www-data /var/www/html/cgnat
 chown -R root:root /opt/cgnat
-chown -R syslog:syslog /var/log/cgnat
+chown -R root:root /var/log/cgnat
 chown -R postgres:postgres /backup/cgnat
 chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat
 
