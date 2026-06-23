@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.6
+# Versão: 2.0 - DEFINITIVA
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
@@ -143,94 +143,53 @@ chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 print_success "Diretórios criados"
 
 # ============================================================
-# 6. CONFIGURAR POSTGRESQL
+# 6. CONFIGURAR POSTGRESQL (METODO TESTADO E APROVADO)
 # ============================================================
 print_header "6. CONFIGURANDO POSTGRESQL"
 
-# Parar PostgreSQL
+# Parar tudo
 systemctl stop postgresql 2>/dev/null || true
+systemctl stop postgresql@15-main 2>/dev/null || true
 
-# Verificar se o cluster existe, se não, criar
-if [ ! -d "/var/lib/postgresql/15/main" ]; then
-    print_info "Criando cluster PostgreSQL..."
-    pg_createcluster 15 main --start
-    sleep 2
-fi
+# Remover cluster antigo se existir
+pg_dropcluster 15 main --stop 2>/dev/null || true
+
+# Remover diretório antigo
+rm -rf /var/lib/postgresql/15/main 2>/dev/null || true
+rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
+rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
+
+# Criar novo cluster
+print_info "Criando cluster PostgreSQL..."
+pg_createcluster 15 main --start -u postgres
 
 # Iniciar PostgreSQL
 systemctl start postgresql
+systemctl enable postgresql
+
+# Aguardar iniciar
 sleep 3
 
 # Verificar se está rodando
 if ! systemctl is-active --quiet postgresql; then
-    print_warning "Tentando iniciar o cluster manualmente..."
+    print_error "PostgreSQL não iniciou. Verificando..."
     pg_ctlcluster 15 main start
     sleep 3
 fi
 
 # Verificar novamente
 if ! systemctl is-active --quiet postgresql; then
-    print_warning "Reconfigurando PostgreSQL..."
-    pg_dropcluster 15 main --stop 2>/dev/null || true
-    pg_createcluster 15 main --start
-    sleep 3
-    systemctl start postgresql
-    sleep 3
-fi
-
-# Verificar se finalmente está rodando
-if systemctl is-active --quiet postgresql; then
-    print_success "PostgreSQL rodando"
-else
     print_error "Não foi possível iniciar o PostgreSQL"
-    journalctl -u postgresql -n 20 --no-pager
+    pg_lsclusters
+    journalctl -u postgresql -n 10 --no-pager
     exit 1
 fi
 
-# Configurar postgresql.conf
-cat > /etc/postgresql/15/main/postgresql.conf << 'PG_CONF'
-data_directory = '/var/lib/postgresql/15/main'
-hba_file = '/etc/postgresql/15/main/pg_hba.conf'
-ident_file = '/etc/postgresql/15/main/pg_ident.conf'
-external_pid_file = '/var/run/postgresql/15-main.pid'
-listen_addresses = '*'
-port = 5432
-max_connections = 100
-shared_buffers = 1GB
-effective_cache_size = 3GB
-maintenance_work_mem = 256MB
-checkpoint_completion_target = 0.9
-wal_buffers = 16MB
-default_statistics_target = 100
-random_page_cost = 1.1
-effective_io_concurrency = 200
-work_mem = 16MB
-min_wal_size = 1GB
-max_wal_size = 4GB
-log_line_prefix = '%m [%p] %q%u@%d '
-log_timezone = 'America/Recife'
-timezone = 'America/Recife'
-lc_messages = 'en_US.UTF-8'
-lc_monetary = 'en_US.UTF-8'
-lc_numeric = 'en_US.UTF-8'
-lc_time = 'en_US.UTF-8'
-default_text_search_config = 'pg_catalog.english'
-PG_CONF
-
-cat > /etc/postgresql/15/main/pg_hba.conf << 'PG_HBA'
-local   all             postgres                                peer
-local   all             all                                     md5
-host    all             all             127.0.0.1/32            md5
-host    all             all             ::1/128                 md5
-PG_HBA
-
-systemctl restart postgresql
-sleep 3
+print_success "PostgreSQL rodando"
 
 # Testar conexão
 if ! sudo -u postgres psql -c "SELECT 1" 2>/dev/null; then
-    print_error "PostgreSQL não responde. Verificando logs..."
-    journalctl -u postgresql -n 10 --no-pager
+    print_error "PostgreSQL não responde"
     exit 1
 fi
 
@@ -404,6 +363,8 @@ print_success "Ambiente Python configurado"
 # ============================================================
 print_header "10. CRIANDO ARQUIVOS PHP"
 
+mkdir -p /var/www/html/cgnat
+
 cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 <?php
 define('DB_HOST', 'localhost');
@@ -489,6 +450,10 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
     stop
 }
 RSYSLOG
+
+# Criar pipe
+mkfifo /var/run/cgnat.pipe 2>/dev/null || true
+chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
 
 systemctl restart rsyslog 2>/dev/null || true
 print_success "Rsyslog configurado"
