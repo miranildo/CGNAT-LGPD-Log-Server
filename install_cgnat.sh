@@ -1199,6 +1199,20 @@ cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
+// Verificar se veio via GET (reabrir consulta)
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset($_GET['porta'])) {
+    $_POST['ip_publico'] = $_GET['ip_publico'];
+    $_POST['porta'] = $_GET['porta'];
+    $_POST['data_inicio'] = $_GET['data_inicio'] ?? date('Y-m-d');
+    $_POST['data_fim'] = $_GET['data_fim'] ?? date('Y-m-d');
+    $_POST['hora_inicio'] = $_GET['hora_inicio'] ?? '00:00';
+    $_POST['hora_fim'] = $_GET['hora_fim'] ?? '23:59';
+    $_POST['motivo'] = $_GET['motivo'] ?? 'Reabertura de consulta';
+    $_POST['protocolo'] = $_GET['protocolo'] ?? '';
+    
+    // Forçar o processamento como se fosse POST
+    $_SERVER['REQUEST_METHOD'] = 'POST';
+}
 
 $resultados = null;
 $total = 0;
@@ -1397,7 +1411,7 @@ try {
     $stmt->execute([$data_inicio, $data_fim]);
     $por_usuario = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $stmt = $db->prepare("SELECT usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial, data_consulta FROM lgpd_audit WHERE DATE(data_consulta) BETWEEN ? AND ? ORDER BY data_consulta DESC LIMIT 50");
+    $stmt = $db->prepare("SELECT id, usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial, data_consulta FROM lgpd_audit WHERE DATE(data_consulta) BETWEEN ? AND ? ORDER BY data_consulta DESC LIMIT 50");
     $stmt->execute([$data_inicio, $data_fim]);
     $ultimas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
@@ -1423,6 +1437,8 @@ include 'menu.php';
         .filtros { display: flex; gap: 20px; align-items: flex-end; margin-bottom: 20px; flex-wrap: wrap; }
         .filtros input { padding: 8px; border: 1px solid #ddd; border-radius: 5px; }
         .btn { padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .btn-sm { padding: 4px 12px; font-size: 12px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn-sm:hover { opacity: 0.8; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
         td { padding: 10px; border-bottom: 1px solid #eee; }
@@ -1435,17 +1451,20 @@ include 'menu.php';
     <div class="container">
         <h1>📊 Relatórios LGPD</h1>
         <?php if (isset($mensagem_erro)): ?><div class="alert">❌ <?php echo $mensagem_erro; ?></div><?php endif; ?>
+        
         <form class="filtros" method="GET">
             <div><label>Data Início</label><input type="date" name="data_inicio" value="<?php echo $data_inicio; ?>"></div>
             <div><label>Data Fim</label><input type="date" name="data_fim" value="<?php echo $data_fim; ?>"></div>
             <div><button type="submit" class="btn">Filtrar</button></div>
         </form>
+        
         <div class="row">
             <div class="card"><div class="numero"><?php echo $resumo['total'] ?? 0; ?></div><div class="label">Total Consultas</div></div>
             <div class="card"><div class="numero"><?php echo $resumo['usuarios'] ?? 0; ?></div><div class="label">Usuários</div></div>
             <div class="card"><div class="numero"><?php echo $resumo['ips_consultados'] ?? 0; ?></div><div class="label">IPs Consultados</div></div>
             <div class="card"><div class="numero"><?php echo $resumo['primeira'] ? date('d/m/Y', strtotime($resumo['primeira'])) : '-'; ?></div><div class="label">Primeira</div></div>
         </div>
+        
         <h3>👤 Consultas por Usuário</h3>
         <table>
             <thead><tr><th>Usuário</th><th>Total</th><th>IPs</th></tr></thead>
@@ -1457,14 +1476,24 @@ include 'menu.php';
                 <?php endif; ?>
             </tbody>
         </table>
-        <h3 style="margin-top:30px;">📋 Últimas</h3>
+        
+        <h3 style="margin-top:30px;">📋 Últimas Consultas <small style="font-weight:normal;color:#888;">(clique em "Reabrir" para ver os resultados)</small></h3>
         <table>
-            <thead><tr><th>Data</th><th>Usuário</th><th>IP</th><th>Porta</th><th>Motivo</th></tr></thead>
+            <thead><tr><th>Data</th><th>Usuário</th><th>IP</th><th>Porta</th><th>Motivo</th><th>Ação</th></tr></thead>
             <tbody>
                 <?php if ($ultimas): foreach ($ultimas as $row): ?>
-                <tr><td><?php echo htmlspecialchars($row['data_consulta']); ?></td><td><?php echo htmlspecialchars($row['usuario']); ?></td><td><?php echo htmlspecialchars($row['ip_consultado']); ?></td><td><?php echo htmlspecialchars($row['porta_consultada']); ?></td><td><?php echo htmlspecialchars($row['motivo']); ?></td></tr>
+                <tr>
+                    <td><?php echo htmlspecialchars($row['data_consulta']); ?></td>
+                    <td><?php echo htmlspecialchars($row['usuario']); ?></td>
+                    <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
+                    <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                    <td><?php echo htmlspecialchars($row['motivo']); ?></td>
+                    <td>
+                        <a href="consultar.php?ip_publico=<?php echo urlencode($row['ip_consultado']); ?>&porta=<?php echo urlencode($row['porta_consultada']); ?>&data_inicio=<?php echo date('Y-m-d', strtotime($row['data_consulta'])); ?>&data_fim=<?php echo date('Y-m-d', strtotime($row['data_consulta'])); ?>" class="btn-sm">🔍 Reabrir</a>
+                    </td>
+                </tr>
                 <?php endforeach; else: ?>
-                <tr><td colspan="5" style="text-align:center;color:#999;">Nenhuma consulta</td></tr>
+                <tr><td colspan="6" style="text-align:center;color:#999;">Nenhuma consulta</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
