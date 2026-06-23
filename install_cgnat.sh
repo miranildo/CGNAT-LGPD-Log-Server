@@ -1143,9 +1143,14 @@ $disco_usado = $disco_parts[1] ?? 'N/A';
 $disco_livre = $disco_parts[2] ?? 'N/A';
 $disco_uso = $disco_parts[3] ?? 'N/A';
 
-// Buscar tamanho do banco
-$tamanho_db = shell_exec("sudo -u postgres psql -d cgnat_logs -t -c \"SELECT pg_size_pretty(pg_database_size('cgnat_logs'));\" 2>/dev/null");
-$tamanho_db = trim($tamanho_db) ?: 'N/A';
+// Buscar tamanho do banco - VERSÃO CORRIGIDA (usando o PostgreSQL diretamente via PDO)
+try {
+    $stmt = $db->query("SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho");
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    $tamanho_db = $result['tamanho'] ?? 'N/A';
+} catch (Exception $e) {
+    $tamanho_db = 'N/A';
+}
 
 // Buscar tamanho dos backups
 $backup_size = shell_exec("du -sh /backup/cgnat/ 2>/dev/null | awk '{print $1}'");
@@ -1200,8 +1205,6 @@ include 'menu.php';
         .badge-success { background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .badge-danger { background: #f8d7da; color: #721c24; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .text-muted { color: #999; }
-
-        /* DISCRETO - Indicador de disco no canto inferior */
         .disco-indicator {
             position: fixed;
             bottom: 10px;
@@ -1209,18 +1212,18 @@ include 'menu.php';
             background: rgba(255,255,255,0.95);
             border: 1px solid #e0e0e0;
             border-radius: 8px;
-            padding: 8px 14px;
+            padding: 6px 12px;
             font-size: 12px;
             color: #555;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             z-index: 999;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         .disco-indicator .barra-mini {
-            width: 60px;
+            width: 50px;
             height: 4px;
             background: #e9ecef;
             border-radius: 2px;
@@ -1237,26 +1240,33 @@ include 'menu.php';
         .disco-indicator .texto {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
         }
         .disco-indicator .texto .uso {
             font-weight: 600;
-            font-size: 13px;
+            font-size: 12px;
         }
         .disco-indicator .texto .detalhe {
             color: #999;
-            font-size: 11px;
+            font-size: 10px;
+        }
+        .disco-indicator .db-info {
+            font-size: 10px;
+            color: #bbb;
+            border-left: 1px solid #eee;
+            padding-left: 6px;
         }
         @media (max-width: 768px) { 
             .row { grid-template-columns: 1fr 1fr; }
             .disco-indicator { 
                 bottom: 5px; 
                 right: 5px; 
-                padding: 5px 10px;
+                padding: 4px 8px;
                 font-size: 10px;
                 flex-wrap: wrap;
+                gap: 4px;
             }
-            .disco-indicator .barra-mini { width: 40px; }
+            .disco-indicator .barra-mini { width: 30px; }
         }
     </style>
 </head>
@@ -1336,8 +1346,8 @@ include 'menu.php';
             ?>
             <div class="barra-mini-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
         </div>
-        <span style="font-size:11px;color:#888;"><?php echo $disco_uso; ?></span>
-        <span style="font-size:10px;color:#bbb;margin-left:4px;">| DB: <?php echo $tamanho_db; ?></span>
+        <span style="font-size:10px;color:#888;"><?php echo $disco_uso; ?></span>
+        <span class="db-info">DB: <?php echo $tamanho_db; ?></span>
     </div>
 </body>
 </html>
