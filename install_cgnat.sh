@@ -2,9 +2,8 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.0 Debian 12 x64 - 23/06/2026
+# Versão: 2.0 - COMPLETO (TODAS AS CORREÇÕES)
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
-# Plataforma: Cisco ASR-1001X
 # ============================================================
 
 set -e
@@ -37,18 +36,18 @@ check_root() {
 }
 
 # ============================================================
-# CONFIGURAÇÕES
+# CONFIGURAÇÕES (ALTERE ANTES DE EXECUTAR)
 # ============================================================
 
-DB_PASS_CGNAT="Wbt@07717125"
-DB_PASS_PARSER="Wbt@07717125"
-MK_AUTH_IP="172.31.255.2"
+DB_PASS_CGNAT="WBT@00000000"
+DB_PASS_PARSER="WBT@0000000"
+MK_AUTH_IP="172.31.254.2"
 MK_AUTH_USER="root"
-MK_AUTH_PASS="25077171@Mlss"
+MK_AUTH_PASS="00000000@MLSS"
 MK_AUTH_DB_PASS="vertrigo"
-CISCO_IP="190.196.243.250"
+CISCO_IP="192.168.243.250"
 CISCO_USER="mkauth"
-CISCO_PASS="Wbt@07717125"
+CISCO_PASS="WBT@0000000"
 TIMEZONE="America/Recife"
 
 # ============================================================
@@ -67,7 +66,7 @@ echo "  ✅ Rsyslog para recebimento de logs"
 echo "  ✅ Parser de logs CGNAT"
 echo "  ✅ Interface web completa (TODAS AS PÁGINAS)"
 echo "  ✅ Scripts de backup e monitoramento"
-echo "  ✅ Integração com MK-AUTH"
+echo "  ✅ Integração com MK-AUTH (usando sis_cliente e sis_adicional)"
 echo ""
 echo "🌐 Timezone configurado para: $TIMEZONE"
 echo ""
@@ -345,11 +344,232 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 10. CRIAR TODOS OS ARQUIVOS PHP
+# 10. CRIAR O PARSER PYTHON (CORRIGIDO)
 # ============================================================
-print_header "10. CRIANDO ARQUIVOS PHP"
+print_header "10. CRIANDO PARSER PYTHON"
 
-# 10.1 CONFIG.PHP
+cat > /opt/cgnat/cgnat_parser.py << 'EOF'
+#!/usr/bin/env python3
+# /opt/cgnat/cgnat_parser.py
+
+import re
+import sys
+import psycopg2
+from datetime import datetime
+import logging
+from typing import Dict, Optional, Tuple
+
+# Configurar logging
+logging.basicConfig(
+    filename='/var/log/cgnat/parser.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+class CGNATParserASR:
+    def __init__(self):
+        self.conn = psycopg2.connect(
+            host="localhost",
+            database="cgnat_logs",
+            user="cgnat_parser",
+            password="WBT@0000000"
+        )
+        self.conn.autocommit = False
+        self.stats = {
+            'created': 0,
+            'deleted': 0,
+            'errors': 0
+        }
+        
+    def parse_log_line(self, line: str) -> Optional[Dict]:
+        # Extrai timestamp
+        timestamp_match = re.search(r'(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\.\d{3})', line)
+        if timestamp_match:
+            data_hora = self.parse_cisco_timestamp(timestamp_match.group(1))
+        else:
+            data_hora = datetime.now()
+        
+        # Extrai a mensagem NAT
+        nat_match = re.search(r'%NAT-6-LOG_TRANSLATION:\s+(.+)', line)
+        if not nat_match:
+            return None
+            
+        nat_message = nat_match.group(1)
+        
+        # Padrão para Created/Deleted Translation
+        pattern = r'(Created|Deleted)\s+Translation\s+(\w+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+(\d+)'
+        match = re.search(pattern, nat_message)
+        
+        if not match:
+            logging.warning(f"NAT message não parseada: {nat_message}")
+            return None
+            
+        return {
+            'acao': match.group(1),
+            'protocolo': match.group(2),
+            'ip_privado': match.group(3),
+            'porta_privada': int(match.group(4)),
+            'ip_publico': match.group(5),
+            'porta_publica': int(match.group(6)),
+            'ip_destino': match.group(7),
+            'porta_destino': int(match.group(8)),
+            'data_hora': data_hora
+        }
+    
+    def parse_cisco_timestamp(self, timestamp_str: str) -> datetime:
+        current_year = datetime.now().year
+        parts = timestamp_str.split('.')
+        base_time = parts[0]
+        
+        try:
+            dt = datetime.strptime(f"{current_year} {base_time}", "%Y %b %d %H:%M:%S")
+            if dt > datetime.now():
+                dt = dt.replace(year=current_year - 1)
+            if len(parts) > 1:
+                ms = int(parts[1][:3])
+                dt = dt.replace(microsecond=ms * 1000)
+            return dt
+        except Exception as e:
+            logging.error(f"Erro ao parsear timestamp {timestamp_str}: {e}")
+            return datetime.now()
+    
+    def get_pppoe_login(self, ip_privado: str, data_hora: datetime) -> Tuple[Optional[str], Optional[int]]:
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT login, id
+                FROM pppoe_sessoes
+                WHERE ip_privado = %s::inet
+                AND inicio <= %s
+                AND (fim IS NULL OR fim >= %s)
+                ORDER BY inicio DESC
+                LIMIT 1
+            """, (ip_privado, data_hora, data_hora))
+            
+            result = cursor.fetchone()
+            if result:
+                return result[0], result[1]
+            return None, None
+        except Exception as e:
+            logging.error(f"Erro ao buscar PPPoE: {e}")
+            return None, None
+        finally:
+            cursor.close()
+    
+    def save_log(self, parsed: Dict):
+        cursor = self.conn.cursor()
+        
+        try:
+            login, sessao_id = self.get_pppoe_login(
+                parsed['ip_privado'], 
+                parsed['data_hora']
+            )
+            
+            cursor.execute("""
+                INSERT INTO cgnat_logs (
+                    data_hora, acao, ip_privado, porta_privada,
+                    ip_publico, porta_publica, ip_destino,
+                    porta_destino, protocolo, login, sessao_id
+                ) VALUES (
+                    %s, %s, %s::inet, %s,
+                    %s::inet, %s, %s::inet,
+                    %s, %s, %s, %s
+                )
+            """, (
+                parsed['data_hora'],
+                parsed['acao'],
+                parsed['ip_privado'],
+                parsed['porta_privada'],
+                parsed['ip_publico'],
+                parsed['porta_publica'],
+                parsed['ip_destino'],
+                parsed['porta_destino'],
+                parsed['protocolo'],
+                login,
+                sessao_id
+            ))
+            
+            self.conn.commit()
+            
+            if parsed['acao'] == 'Created':
+                self.stats['created'] += 1
+            else:
+                self.stats['deleted'] += 1
+                
+        except Exception as e:
+            logging.error(f"Erro ao salvar log: {e}")
+            self.conn.rollback()
+        finally:
+            cursor.close()
+    
+    def process_line(self, line: str):
+        try:
+            parsed = self.parse_log_line(line)
+            if parsed:
+                self.save_log(parsed)
+            else:
+                self.stats['errors'] += 1
+        except Exception as e:
+            logging.error(f"Erro ao processar linha: {e}")
+            self.stats['errors'] += 1
+    
+    def run(self):
+        logging.info("Parser CGNAT iniciado")
+        
+        for line in sys.stdin:
+            line = line.strip()
+            if not line or '%NAT-6-LOG_TRANSLATION' not in line:
+                continue
+            self.process_line(line)
+            
+            if (self.stats['created'] + self.stats['deleted']) % 1000 == 0:
+                logging.info(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, Errors={self.stats['errors']}")
+
+if __name__ == "__main__":
+    parser = CGNATParserASR()
+    parser.run()
+EOF
+
+chmod +x /opt/cgnat/cgnat_parser.py
+print_success "Parser Python criado"
+
+# ============================================================
+# 11. CRIAR SERVICE DO PARSER (CORRIGIDO)
+# ============================================================
+print_header "11. CRIANDO SERVICE DO PARSER"
+
+cat > /etc/systemd/system/cgnat-parser.service << 'EOF'
+[Unit]
+Description=CGNAT Log Parser Service
+After=network.target postgresql.service rsyslog.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/cgnat
+ExecStart=/bin/bash -c '/opt/cgnat/venv/bin/python /opt/cgnat/cgnat_parser.py < /var/run/cgnat.pipe'
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/cgnat/parser.log
+StandardError=append:/var/log/cgnat/parser.error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable cgnat-parser
+systemctl start cgnat-parser
+
+print_success "Service do parser criado"
+
+# ============================================================
+# 12. CRIAR TODOS OS ARQUIVOS PHP
+# ============================================================
+print_header "12. CRIANDO ARQUIVOS PHP"
+
+# 12.1 CONFIG.PHP
 cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 <?php
 define('DB_HOST', 'localhost');
@@ -367,7 +587,7 @@ if (session_status() == PHP_SESSION_NONE) {
 ?>
 CONFIG_PHP
 
-# 10.2 FUNCTIONS.PHP
+# 12.2 FUNCTIONS.PHP
 cat > /var/www/html/cgnat/functions.php << 'FUNCTIONS_PHP'
 <?php
 require_once 'config.php';
@@ -428,7 +648,7 @@ function registrarAuditoria($usuario, $ip_publico, $porta, $motivo, $protocolo) 
 ?>
 FUNCTIONS_PHP
 
-# 10.3 AUTH.PHP
+# 12.3 AUTH.PHP
 cat > /var/www/html/cgnat/auth.php << 'AUTH_PHP'
 <?php
 require_once 'config.php';
@@ -491,7 +711,7 @@ function verificarPermissao($perfil_necessario = null) {
 ?>
 AUTH_PHP
 
-# 10.4 LOGIN.PHP
+# 12.4 LOGIN.PHP
 cat > /var/www/html/cgnat/login.php << 'LOGIN_PHP'
 <?php
 if (session_status() == PHP_SESSION_NONE) {
@@ -631,7 +851,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </html>
 LOGIN_PHP
 
-# 10.5 LOGOUT.PHP
+# 12.5 LOGOUT.PHP
 cat > /var/www/html/cgnat/logout.php << 'LOGOUT_PHP'
 <?php
 session_start();
@@ -641,7 +861,7 @@ exit;
 ?>
 LOGOUT_PHP
 
-# 10.6 MENU.PHP
+# 12.6 MENU.PHP
 cat > /var/www/html/cgnat/menu.php << 'MENU_PHP'
 <?php
 $current_page = basename($_SERVER['PHP_SELF']);
@@ -704,7 +924,7 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 </div>
 MENU_PHP
 
-# 10.7 INDEX.PHP (PÁGINA INICIAL)
+# 12.7 INDEX.PHP
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
 <?php
 require_once 'auth.php';
@@ -852,7 +1072,7 @@ include 'menu.php';
 </html>
 INDEX_PHP
 
-# 10.8 DASHBOARD.PHP
+# 12.8 DASHBOARD.PHP
 cat > /var/www/html/cgnat/dashboard.php << 'DASHBOARD_PHP'
 <?php
 require_once 'auth.php';
@@ -944,7 +1164,7 @@ include 'menu.php';
 </html>
 DASHBOARD_PHP
 
-# 10.9 CONSULTAR.PHP
+# 12.9 CONSULTAR.PHP (CORRIGIDO - usa c.login)
 cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 <?php
 require_once 'auth.php';
@@ -967,18 +1187,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($ip_publico && $porta) {
         try {
             $db = getDBConnection();
-            
-            // Registrar auditoria
-            $stmt = $db->prepare("
-                INSERT INTO lgpd_audit (usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial)
-                VALUES (?, ?, ?, ?, ?)
-            ");
+            $stmt = $db->prepare("INSERT INTO lgpd_audit (usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$_SESSION['usuario'], $ip_publico, $porta, $motivo, $protocolo]);
             
-            // ============================================================
             // CONSULTA CORRIGIDA: usa c.login (login da época do log)
-            // NÃO usa mais LEFT JOIN clientes (que pega cliente atual)
-            // ============================================================
             $stmt = $db->prepare("
                 SELECT 
                     c.data_hora,
@@ -1006,7 +1218,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($total > 0 && !empty($resultados[0]['cliente_nome'])) {
                 $cliente_nome = $resultados[0]['cliente_nome'];
             }
-            
             $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado.';
         } catch (Exception $e) {
             $mensagem = "❌ Erro: " . $e->getMessage();
@@ -1023,41 +1234,15 @@ include 'menu.php';
     <title>Consulta CGNAT</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #333; border-bottom: 3px solid #667eea; padding-bottom: 15px; margin-bottom: 25px; }
         .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
-        input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-        }
+        input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
         input:focus { border-color: #667eea; outline: none; }
-        .btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-        }
+        .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn:hover { opacity: 0.9; }
         .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
         .results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
@@ -1065,162 +1250,65 @@ include 'menu.php';
         th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
         td { padding: 10px; border-bottom: 1px solid #eee; }
         tr:hover { background: #f8f9fa; }
-        .badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .badge-success { background: #d4edda; color: #155724; }
         .badge-danger { background: #f8d7da; color: #721c24; }
         .badge-info { background: #cce5ff; color: #004085; }
-        .alert {
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-        }
+        .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .client-info {
-            background: #e7f3ff;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 15px 0;
-            border-left: 4px solid #667eea;
-        }
+        .client-info { background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #667eea; }
         .client-info h3 { color: #004085; margin: 0; }
-        .aviso-lgpd {
-            background: #fff3cd;
-            padding: 12px;
-            border-radius: 8px;
-            margin: 15px 0;
-            border-left: 4px solid #ffc107;
-            font-size: 13px;
-            color: #856404;
-        }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔍 Consulta CGNAT - LGPD</h1>
-        
-        <div class="aviso-lgpd">
-            ⚠️ <strong>Informação importante:</strong> O cliente identificado é o que estava usando o IP no momento do log, 
-            baseado no histórico de sessões PPPoE. Isso garante a rastreabilidade correta mesmo se o IP foi reutilizado posteriormente.
-        </div>
-        
         <?php if ($mensagem): ?>
-        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false || strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'; ?>">
-            <?php echo $mensagem; ?>
-        </div>
+        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false || strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'; ?>"><?php echo $mensagem; ?></div>
         <?php endif; ?>
-        
         <?php if ($cliente_nome): ?>
-        <div class="client-info">
-            <h3>👤 Cliente Identificado: <?php echo htmlspecialchars($cliente_nome); ?></h3>
-            <p style="font-size: 13px; color: #666; margin-top: 5px;">
-                ✅ Cliente identificado com base no histórico de sessões PPPoE na data/hora da conexão.
-            </p>
-        </div>
+        <div class="client-info"><h3>👤 Cliente: <?php echo htmlspecialchars($cliente_nome); ?></h3></div>
         <?php endif; ?>
-        
         <form method="POST">
             <div class="row">
-                <div class="form-group">
-                    <label>IP Público *</label>
-                    <input type="text" name="ip_publico" placeholder="Ex: 190.196.242.19" required 
-                           value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
-                </div>
-                <div class="form-group">
-                    <label>Porta Pública *</label>
-                    <input type="number" name="porta" placeholder="Ex: 51478" required
-                           value="<?php echo $_POST['porta'] ?? ''; ?>">
-                </div>
+                <div class="form-group"><label>IP Público *</label><input type="text" name="ip_publico" placeholder="Ex: 190.196.242.19" required value="<?php echo $_POST['ip_publico'] ?? ''; ?>"></div>
+                <div class="form-group"><label>Porta Pública *</label><input type="number" name="porta" placeholder="Ex: 51478" required value="<?php echo $_POST['porta'] ?? ''; ?>"></div>
             </div>
-            
             <div class="row">
-                <div class="form-group">
-                    <label>Data Início</label>
-                    <input type="date" name="data_inicio" 
-                           value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>">
-                </div>
-                <div class="form-group">
-                    <label>Data Fim</label>
-                    <input type="date" name="data_fim" 
-                           value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>">
-                </div>
+                <div class="form-group"><label>Data Início</label><input type="date" name="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>"></div>
+                <div class="form-group"><label>Data Fim</label><input type="date" name="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>"></div>
             </div>
-            
             <div class="row">
-                <div class="form-group">
-                    <label>Hora Início</label>
-                    <input type="time" name="hora_inicio" 
-                           value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>">
-                </div>
-                <div class="form-group">
-                    <label>Hora Fim</label>
-                    <input type="time" name="hora_fim" 
-                           value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>">
-                </div>
+                <div class="form-group"><label>Hora Início</label><input type="time" name="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>"></div>
+                <div class="form-group"><label>Hora Fim</label><input type="time" name="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>"></div>
             </div>
-            
             <div class="row">
-                <div class="form-group">
-                    <label>Motivo da Consulta</label>
-                    <input type="text" name="motivo" value="Consulta LGPD">
-                </div>
-                <div class="form-group">
-                    <label>Protocolo Judicial</label>
-                    <input type="text" name="protocolo" placeholder="Número do processo">
-                </div>
+                <div class="form-group"><label>Motivo</label><input type="text" name="motivo" value="Consulta LGPD"></div>
+                <div class="form-group"><label>Protocolo</label><input type="text" name="protocolo" placeholder="Número do processo"></div>
             </div>
-            
             <button type="submit" class="btn">🔍 Consultar</button>
             <button type="reset" class="btn btn-danger" style="margin-left:10px;">↺ Limpar</button>
         </form>
-        
         <?php if ($resultados && $total > 0): ?>
         <div class="results">
             <h3>📋 Resultados (<?php echo $total; ?> registros)</h3>
             <div style="overflow-x:auto; margin-top:15px;">
                 <table>
-                    <thead>
-                        <tr>
-                            <th>Data/Hora</th>
-                            <th>Evento</th>
-                            <th>IP Cliente</th>
-                            <th>Porta</th>
-                            <th>IP Público</th>
-                            <th>Porta Pública</th>
-                            <th>Destino</th>
-                            <th>Protocolo</th>
-                            <th>Cliente (Login)</th>
-                        </tr>
-                    </thead>
+                    <thead><tr><th>Data/Hora</th><th>Evento</th><th>IP Cliente</th><th>Porta</th><th>IP Público</th><th>Porta Pública</th><th>Destino</th><th>Protocolo</th><th>Cliente</th></tr></thead>
                     <tbody>
                         <?php foreach ($resultados as $row): ?>
                         <tr>
                             <td><?php echo htmlspecialchars($row['data_hora']); ?></td>
-                            <td>
-                                <span class="badge <?php echo $row['acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
-                                    <?php echo $row['acao'] == 'Created' ? '📌 Criação' : '❌ Deleção'; ?>
-                                </span>
-                            </td>
+                            <td><span class="badge <?php echo $row['acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>"><?php echo $row['acao'] == 'Created' ? '📌 Criação' : '❌ Deleção'; ?></span></td>
                             <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
                             <td><?php echo htmlspecialchars($row['porta_privada'] ?? '-'); ?></td>
                             <td><strong><?php echo htmlspecialchars($row['ip_publico']); ?></strong></td>
                             <td><strong><?php echo htmlspecialchars($row['porta_publica']); ?></strong></td>
                             <td><?php echo htmlspecialchars(($row['ip_destino'] ?? '') . ':' . ($row['porta_destino'] ?? '')); ?></td>
                             <td><?php echo htmlspecialchars($row['protocolo'] ?? '-'); ?></td>
-                            <td>
-                                <?php if (!empty($row['cliente_nome'])): ?>
-                                    <span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
-                                <?php else: ?>
-                                    <span style="color: #999;">Não identificado</span>
-                                <?php endif; ?>
-                            </td>
+                            <td><?php if (!empty($row['cliente_nome'])): ?><span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span><?php else: ?><span style="color:#999;">Não identificado</span><?php endif; ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -1233,7 +1321,7 @@ include 'menu.php';
 </html>
 CONSULTAR_PHP
 
-# 10.10 RELATORIOS.PHP
+# 12.10 RELATORIOS.PHP
 cat > /var/www/html/cgnat/relatorios.php << 'RELATORIOS_PHP'
 <?php
 require_once 'auth.php';
@@ -1330,7 +1418,7 @@ include 'menu.php';
 </html>
 RELATORIOS_PHP
 
-# 10.11 ADMIN.PHP
+# 12.11 ADMIN.PHP
 cat > /var/www/html/cgnat/admin.php << 'ADMIN_PHP'
 <?php
 require_once 'auth.php';
@@ -1512,9 +1600,31 @@ ADMIN_PHP
 print_success "TODOS os 11 arquivos PHP criados com sucesso!"
 
 # ============================================================
-# 11. CONFIGURAR CRONJOBS
+# 13. CONFIGURAR RSYSLOG
 # ============================================================
-print_header "11. CONFIGURANDO CRONJOBS"
+print_header "13. CONFIGURANDO RSYSLOG"
+
+cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
+module(load="imudp")
+input(type="imudp" port="514")
+template(name="nat-template" type="string" string="%msg%\n")
+if $msg contains 'NAT-6-LOG_TRANSLATION' then {
+    action(type="omfile" file="/var/log/cgnat/raw.log" template="nat-template")
+    action(type="ompipe" pipe="/var/run/cgnat.pipe" template="nat-template")
+    stop
+}
+RSYSLOG
+
+mkfifo /var/run/cgnat.pipe 2>/dev/null || true
+chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
+
+systemctl restart rsyslog 2>/dev/null || true
+print_success "Rsyslog configurado"
+
+# ============================================================
+# 14. CONFIGURAR CRONJOBS
+# ============================================================
+print_header "14. CONFIGURANDO CRONJOBS"
 
 cat > /tmp/crontab_cgnat << 'CRON'
 0 2 * * * /usr/local/bin/backup_cgnat.sh >> /var/log/cgnat/backup.log 2>&1
@@ -1529,9 +1639,9 @@ rm /tmp/crontab_cgnat
 print_success "Cronjobs configurados"
 
 # ============================================================
-# 12. SCRIPTS ÚTEIS
+# 15. SCRIPTS ÚTEIS (COM sync_mkauth.sh CORRIGIDO)
 # ============================================================
-print_header "12. CRIANDO SCRIPTS ÚTEIS"
+print_header "15. CRIANDO SCRIPTS ÚTEIS"
 
 # Script de Backup
 cat > /usr/local/bin/backup_cgnat.sh << 'BACKUP'
@@ -1545,28 +1655,23 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
-# Script de Sincronização MK-AUTH (GERADO CORRETAMENTE)
-cat > /usr/local/bin/sync_mkauth.sh << EOF
+# Script de Sincronização MK-AUTH (USANDO sis_cliente e sis_adicional)
+cat > /usr/local/bin/sync_mkauth.sh << "SYNC"
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
-# Gerado pelo instalador em $(date)
+# Usa as tabelas sis_cliente e sis_adicional (corrigido)
 
 echo "\$(date): Iniciando sincronização com MK-AUTH..."
 
-# ============================================================
-# CONFIGURAÇÕES (valores reais inseridos pelo instalador)
-# ============================================================
+# Usando as variáveis do script principal
 MK_AUTH_IP="${MK_AUTH_IP}"
 MK_AUTH_USER="${MK_AUTH_USER}"
 MK_AUTH_PASS="${MK_AUTH_PASS}"
 DB_USER="root"
 DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
-# ============================================================
 
 TMP_FILE="/tmp/radacct_export_\$\$.csv"
-
-echo "Conectando a \${MK_AUTH_IP} como \${MK_AUTH_USER}..."
 
 sshpass -p "\${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \${MK_AUTH_USER}@\${MK_AUTH_IP} \
 "mysql -u \${DB_USER} -p\${DB_PASS} -B -N -e '
@@ -1621,11 +1726,10 @@ SQL
     rm -f "\${TMP_FILE}"
 else
     echo "ERRO: Não foi possível exportar dados do MK-AUTH"
-    echo "Verifique a conectividade com \${MK_AUTH_IP}"
 fi
 
 echo "\$(date): Sincronização concluída."
-EOF
+SYNC
 chmod +x /usr/local/bin/sync_mkauth.sh
 
 # Script de Monitoramento de Disco
@@ -1703,48 +1807,12 @@ chmod +x /usr/local/bin/create_cgnat_partition.sh
 print_success "Scripts criados"
 
 # ============================================================
-# 13. CONFIGURAR RSYSLOG
+# 16. REDIRECIONAR RAIZ PARA /CGNAT/
 # ============================================================
-print_header "13. CONFIGURANDO RSYSLOG"
+print_header "16. CONFIGURANDO REDIRECIONAMENTO"
 
-cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
-module(load="imudp")
-input(type="imudp" port="514")
-template(name="nat-template" type="string" string="%msg%\n")
-if $msg contains 'NAT-6-LOG_TRANSLATION' then {
-    action(type="omfile" file="/var/log/cgnat/raw.log" template="nat-template")
-    action(type="ompipe" pipe="/var/run/cgnat.pipe" template="nat-template")
-    stop
-}
-RSYSLOG
-
-mkfifo /var/run/cgnat.pipe 2>/dev/null || true
-chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
-
-systemctl restart rsyslog 2>/dev/null || true
-print_success "Rsyslog configurado"
-
-# ============================================================
-# 14. PERMISSÕES FINAIS
-# ============================================================
-print_header "14. AJUSTANDO PERMISSÕES FINAIS"
-
-chown -R www-data:www-data /var/www/html/cgnat/ 2>/dev/null || true
-chmod -R 755 /var/www/html/cgnat/ 2>/dev/null || true
-chmod 644 /var/www/html/cgnat/*.php 2>/dev/null || true
-systemctl restart apache2 2>/dev/null || true
-
-print_success "Permissões ajustadas"
-
-# ============================================================
-# 15. REDIRECIONAR RAIZ PARA /CGNAT/
-# ============================================================
-print_header "15. CONFIGURANDO REDIRECIONAMENTO"
-
-# Renomear index.html padrão
 mv /var/www/html/index.html /var/www/html/index2.html 2>/dev/null || true
 
-# Criar index.php com redirecionamento
 cat > /var/www/html/index.php << 'EOF'
 <?php
 header('Location: /cgnat/login.php');
@@ -1759,7 +1827,19 @@ systemctl restart apache2 2>/dev/null || true
 print_success "Redirecionamento configurado"
 
 # ============================================================
-# 16. RESULTADO FINAL
+# 17. PERMISSÕES FINAIS
+# ============================================================
+print_header "17. AJUSTANDO PERMISSÕES FINAIS"
+
+chown -R www-data:www-data /var/www/html/cgnat/ 2>/dev/null || true
+chmod -R 755 /var/www/html/cgnat/ 2>/dev/null || true
+chmod 644 /var/www/html/cgnat/*.php 2>/dev/null || true
+systemctl restart apache2 2>/dev/null || true
+
+print_success "Permissões ajustadas"
+
+# ============================================================
+# 18. RESULTADO FINAL
 # ============================================================
 print_header "✅ INSTALAÇÃO CONCLUÍDA!"
 
@@ -1769,7 +1849,7 @@ echo "============================================================"
 echo "  📋 INFORMAÇÕES DO SISTEMA"
 echo "============================================================"
 echo ""
-echo "🌐 URL de acesso: http://$IP/login.php"
+echo "🌐 URL de acesso: http://$IP/"
 echo ""
 echo "🔐 CREDENCIAIS DE ACESSO:"
 echo "   Usuário: admin"
@@ -1784,10 +1864,11 @@ echo ""
 echo "🔧 SERVIÇOS:"
 echo "   PostgreSQL: systemctl status postgresql"
 echo "   Rsyslog: systemctl status rsyslog"
+echo "   Parser: systemctl status cgnat-parser"
 echo "   Apache: systemctl status apache2"
 echo ""
 echo "📊 PRÓXIMOS PASSOS:"
-echo "   1. Acesse a interface web: http://$IP/cgnat/login.php"
+echo "   1. Acesse a interface web: http://$IP/"
 echo "   2. Configure o Cisco ASR1001-X para enviar logs"
 echo "   3. Execute a sincronização MK-AUTH: /usr/local/bin/sync_mkauth.sh"
 echo ""
