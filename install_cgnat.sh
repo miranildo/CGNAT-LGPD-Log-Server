@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.4
+# Versão: 1.5
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
@@ -42,9 +42,6 @@ check_root() {
 
 DB_PASS_CGNAT="WBT@00000000"
 DB_PASS_PARSER="WBT@0000000"
-WEB_ADMIN_PASS="admin123"
-WEB_JURIDICO_PASS="juridico123"
-WEB_OPERADOR_PASS="operador123"
 MK_AUTH_IP="172.31.254.2"
 MK_AUTH_USER="root"
 MK_AUTH_PASS="00000000@MLSS"
@@ -127,19 +124,9 @@ apt install -y \
 print_success "Pacotes instalados"
 
 # ============================================================
-# 5. INICIAR POSTGRESQL
+# 5. CRIAR DIRETÓRIOS
 # ============================================================
-print_header "5. INICIANDO POSTGRESQL"
-
-systemctl start postgresql 2>/dev/null || true
-systemctl enable postgresql 2>/dev/null || true
-sleep 3
-print_success "PostgreSQL iniciado"
-
-# ============================================================
-# 6. CRIAR DIRETÓRIOS
-# ============================================================
-print_header "6. CRIANDO DIRETÓRIOS"
+print_header "5. CRIANDO DIRETÓRIOS"
 
 mkdir -p /opt/cgnat
 mkdir -p /var/www/html/cgnat
@@ -156,10 +143,37 @@ chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 print_success "Diretórios criados"
 
 # ============================================================
-# 7. CONFIGURAR POSTGRESQL
+# 6. INICIAR E CONFIGURAR POSTGRESQL
 # ============================================================
-print_header "7. CONFIGURANDO POSTGRESQL"
+print_header "6. CONFIGURANDO POSTGRESQL"
 
+# Parar e remover locks
+systemctl stop postgresql 2>/dev/null || true
+rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
+rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
+
+# Iniciar PostgreSQL
+systemctl start postgresql
+sleep 3
+
+# Verificar se está rodando
+if ! systemctl is-active --quiet postgresql; then
+    print_error "PostgreSQL não iniciou. Tentando reiniciar..."
+    systemctl restart postgresql
+    sleep 5
+fi
+
+# Se ainda não rodar, reinstalar
+if ! systemctl is-active --quiet postgresql; then
+    print_warning "Reinstalando PostgreSQL..."
+    apt install --reinstall -y postgresql postgresql-contrib
+    systemctl start postgresql
+    sleep 3
+fi
+
+print_success "PostgreSQL rodando"
+
+# Configurar postgresql.conf
 cat > /etc/postgresql/15/main/postgresql.conf << 'PG_CONF'
 data_directory = '/var/lib/postgresql/15/main'
 hba_file = '/etc/postgresql/15/main/pg_hba.conf'
@@ -197,9 +211,22 @@ host    all             all             ::1/128                 md5
 PG_HBA
 
 systemctl restart postgresql
-sleep 2
+sleep 3
 
-# Criar usuários e banco
+# Testar conexão
+if ! sudo -u postgres psql -c "SELECT 1" 2>/dev/null; then
+    print_error "PostgreSQL não responde. Verificando logs..."
+    journalctl -u postgresql -n 10 --no-pager
+    exit 1
+fi
+
+print_success "PostgreSQL configurado"
+
+# ============================================================
+# 7. CRIAR USUÁRIOS E BANCO
+# ============================================================
+print_header "7. CRIANDO USUÁRIOS E BANCO"
+
 sudo -u postgres psql -c "CREATE USER cgnat_parser WITH PASSWORD 'WBT@0000000';" 2>/dev/null || true
 sudo -u postgres psql -c "CREATE USER cgnat_admin WITH PASSWORD 'WBT@00000000';" 2>/dev/null || true
 sudo -u postgres psql -c "CREATE DATABASE cgnat_logs OWNER cgnat_parser;" 2>/dev/null || true
@@ -207,7 +234,7 @@ sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_p
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;" 2>/dev/null || true
 sudo -u postgres psql -d cgnat_logs -c "CREATE EXTENSION IF NOT EXISTS dblink;" 2>/dev/null || true
 
-print_success "PostgreSQL configurado"
+print_success "Usuários e banco criados"
 
 # ============================================================
 # 8. CRIAR TABELAS
