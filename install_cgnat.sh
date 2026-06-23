@@ -1125,10 +1125,17 @@ $total_logs = $stmt->fetchColumn();
 $stmt = $db->query("SELECT COUNT(*) FROM clientes");
 $total_clientes = $stmt->fetchColumn();
 
+// Buscar últimas consultas com nome do cliente
 $stmt = $db->query("
-    SELECT usuario, ip_consultado, porta_consultada, data_consulta 
-    FROM lgpd_audit 
-    ORDER BY data_consulta DESC 
+    SELECT 
+        a.usuario,
+        a.ip_consultado,
+        a.porta_consultada,
+        a.data_consulta,
+        c.nome as cliente_nome
+    FROM lgpd_audit a
+    LEFT JOIN clientes c ON a.ip_consultado = c.ip_privado
+    ORDER BY a.data_consulta DESC 
     LIMIT 10
 ");
 $ultimas = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1160,6 +1167,7 @@ include 'menu.php';
         }
         th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
         td { padding: 10px; border-bottom: 1px solid #eee; }
+        .badge-info { background: #cce5ff; color: #004085; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr 1fr; } }
     </style>
 </head>
@@ -1175,16 +1183,35 @@ include 'menu.php';
         <div style="margin-top:30px;">
             <h3>📋 Últimas Consultas</h3>
             <table>
-                <thead><tr><th>Data</th><th>Usuário</th><th>IP</th><th>Porta</th></tr></thead>
-                <tbody>
-                    <?php foreach ($ultimas as $row): ?>
+                <thead>
                     <tr>
-                        <td><?php echo htmlspecialchars($row['data_consulta']); ?></td>
-                        <td><?php echo htmlspecialchars($row['usuario']); ?></td>
-                        <td><?php echo htmlspecialchars($row['ip_consultado']); ?></td>
-                        <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                        <th>Data</th>
+                        <th>Usuário</th>
+                        <th>IP</th>
+                        <th>Porta</th>
+                        <th>Cliente</th>
                     </tr>
-                    <?php endforeach; ?>
+                </thead>
+                <tbody>
+                    <?php if ($ultimas): ?>
+                        <?php foreach ($ultimas as $row): ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars($row['data_consulta']); ?></td>
+                            <td><?php echo htmlspecialchars($row['usuario']); ?></td>
+                            <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
+                            <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                            <td>
+                                <?php if (!empty($row['cliente_nome'])): ?>
+                                    <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
+                                <?php else: ?>
+                                    <span style="color:#999;">Não identificado</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr><td colspan="5" style="text-align:center;color:#999;">Nenhuma consulta realizada</td></tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
