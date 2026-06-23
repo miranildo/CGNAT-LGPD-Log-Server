@@ -1134,17 +1134,20 @@ $total_logs = $stmt->fetchColumn();
 $stmt = $db->query("SELECT COUNT(*) FROM clientes");
 $total_clientes = $stmt->fetchColumn();
 
-// Buscar últimas consultas com nome do cliente
+// Buscar últimas consultas - AGORA USA OS CAMPOS JÁ SALVOS
 $stmt = $db->query("
     SELECT 
-        a.usuario,
-        a.ip_consultado,
-        a.porta_consultada,
-        a.data_consulta,
-        c.nome as cliente_nome
-    FROM lgpd_audit a
-    LEFT JOIN clientes c ON a.ip_consultado = c.ip_privado
-    ORDER BY a.data_consulta DESC 
+        usuario,
+        ip_consultado,
+        porta_consultada,
+        data_consulta,
+        cliente_nome,
+        ip_privado,
+        log_data_hora,
+        log_acao,
+        resultado_registros
+    FROM lgpd_audit 
+    ORDER BY data_consulta DESC 
     LIMIT 10
 ");
 $ultimas = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1177,6 +1180,9 @@ include 'menu.php';
         th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
         td { padding: 10px; border-bottom: 1px solid #eee; }
         .badge-info { background: #cce5ff; color: #004085; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .badge-success { background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .badge-danger { background: #f8d7da; color: #721c24; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .text-muted { color: #999; }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr 1fr; } }
     </style>
 </head>
@@ -1199,6 +1205,8 @@ include 'menu.php';
                         <th>IP</th>
                         <th>Porta</th>
                         <th>Cliente</th>
+                        <th>IP Privado</th>
+                        <th>Log Original</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1213,13 +1221,26 @@ include 'menu.php';
                                 <?php if (!empty($row['cliente_nome'])): ?>
                                     <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
                                 <?php else: ?>
-                                    <span style="color:#999;">Não identificado</span>
+                                    <span class="text-muted">Não identificado</span>
+                                <?php endif; ?>
+                            </td>
+                            <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
+                            <td>
+                                <?php if ($row['log_acao']): ?>
+                                    <span class="badge <?php echo $row['log_acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
+                                        <?php echo $row['log_acao']; ?>
+                                    </span>
+                                    <small style="color:#888;">
+                                        <?php echo date('d/m H:i', strtotime($row['log_data_hora'])); ?>
+                                    </small>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     <?php else: ?>
-                        <tr><td colspan="5" style="text-align:center;color:#999;">Nenhuma consulta realizada</td></tr>
+                        <tr><td colspan="7" style="text-align:center;color:#999;">Nenhuma consulta realizada</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
