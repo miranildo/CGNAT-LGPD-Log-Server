@@ -1450,7 +1450,29 @@ systemctl restart apache2 2>/dev/null || true
 print_success "Permissões ajustadas"
 
 # ============================================================
-# 15. RESULTADO FINAL
+# 15. REDIRECIONAR RAIZ PARA /CGNAT/
+# ============================================================
+print_header "15. CONFIGURANDO REDIRECIONAMENTO"
+
+# Renomear index.html padrão
+mv /var/www/html/index.html /var/www/html/index2.html 2>/dev/null || true
+
+# Criar index.php com redirecionamento
+cat > /var/www/html/index.php << 'EOF'
+<?php
+header('Location: /cgnat/login.php');
+exit;
+?>
+EOF
+
+chown www-data:www-data /var/www/html/index.php
+chmod 644 /var/www/html/index.php
+systemctl restart apache2 2>/dev/null || true
+
+print_success "Redirecionamento configurado"
+
+# ============================================================
+# 16. RESULTADO FINAL
 # ============================================================
 print_header "✅ INSTALAÇÃO CONCLUÍDA!"
 
