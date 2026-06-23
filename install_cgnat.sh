@@ -1808,8 +1808,25 @@ chmod +x /usr/local/bin/create_cgnat_partition.sh
 
 print_success "Scripts criados"
 
+
 # ============================================================
-# 16. REDIRECIONAR RAIZ PARA /CGNAT/
+# 16. CONCEDER PERMISSÃO USUARIO CGNAT-PARSER
+# ============================================================
+sudo -u postgres psql -d cgnat_logs << 'EOF'
+-- Conceder permissões na tabela pppoe_sessoes
+GRANT ALL PRIVILEGES ON TABLE pppoe_sessoes TO cgnat_parser;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_parser;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cgnat_parser;
+
+-- Verificar permissões
+\dp pppoe_sessoes
+EOF
+
+# Reiniciar o parser
+sudo systemctl restart cgnat-parser
+
+# ============================================================
+# 17. REDIRECIONAR RAIZ PARA /CGNAT/
 # ============================================================
 print_header "16. CONFIGURANDO REDIRECIONAMENTO"
 
@@ -1829,7 +1846,7 @@ systemctl restart apache2 2>/dev/null || true
 print_success "Redirecionamento configurado"
 
 # ============================================================
-# 17. PERMISSÕES FINAIS
+# 18. PERMISSÕES FINAIS
 # ============================================================
 print_header "17. AJUSTANDO PERMISSÕES FINAIS"
 
@@ -1841,7 +1858,7 @@ systemctl restart apache2 2>/dev/null || true
 print_success "Permissões ajustadas"
 
 # ============================================================
-# 18. RESULTADO FINAL
+# 19. RESULTADO FINAL
 # ============================================================
 print_header "✅ INSTALAÇÃO CONCLUÍDA!"
 
