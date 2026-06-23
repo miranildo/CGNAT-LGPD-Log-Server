@@ -4,6 +4,7 @@
 # ============================================================
 # Versão: 1.0 Debian 12 x64 - 23/06/2026
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
+# Plataforma: Cisco ASR-1001X
 # ============================================================
 
 set -e
