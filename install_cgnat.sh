@@ -1183,7 +1183,6 @@ include 'menu.php';
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         
-        /* Título com indicador de disco alinhado à direita */
         .header-dashboard {
             display: flex;
             justify-content: space-between;
@@ -1195,71 +1194,85 @@ include 'menu.php';
         .header-dashboard h1 {
             color: #333;
             margin: 0;
+            font-size: 28px;
         }
         .disco-indicator {
             display: flex;
             align-items: center;
             gap: 8px;
-            font-size: 12px;
+            font-size: 13px;
             color: #888;
             background: #f8f9fa;
-            padding: 4px 12px;
+            padding: 5px 14px;
             border-radius: 20px;
             border: 1px solid #e9ecef;
         }
         .disco-indicator .barra-mini {
-            width: 50px;
-            height: 4px;
+            width: 60px;
+            height: 5px;
             background: #e9ecef;
-            border-radius: 2px;
+            border-radius: 3px;
             overflow: hidden;
         }
         .disco-indicator .barra-mini-fill {
             height: 100%;
-            border-radius: 2px;
+            border-radius: 3px;
             transition: width 0.3s;
         }
         .disco-indicator .barra-mini-fill.verde { background: #27ae60; }
         .disco-indicator .barra-mini-fill.amarelo { background: #f39c12; }
         .disco-indicator .barra-mini-fill.vermelho { background: #e74c3c; }
         .disco-indicator .uso { font-weight: 600; color: #555; }
-        .disco-indicator .db { color: #bbb; font-size: 10px; border-left: 1px solid #eee; padding-left: 6px; }
+        .disco-indicator .db { color: #bbb; font-size: 11px; border-left: 1px solid #eee; padding-left: 8px; }
 
         .row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .card { background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center; position: relative; }
+        .card { background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center; }
         .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
         .card .label { color: #888; margin-top: 5px; font-size: 14px; }
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
 
+        /* TABELA - TAMANHO ORIGINAL */
         table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 15px;
+            font-size: 14px;
         }
-        th { background: #f8f9fa; padding: 10px 8px; text-align: left; border-bottom: 2px solid #dee2e6; font-size: 13px; }
-        td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; }
-        .badge-info { background: #cce5ff; color: #004085; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
-        .badge-success { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
-        .badge-danger { background: #f8d7da; color: #721c24; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
+        th { 
+            background: #f8f9fa; 
+            padding: 12px; 
+            text-align: left; 
+            border-bottom: 2px solid #dee2e6; 
+            font-size: 14px;
+            font-weight: 600;
+        }
+        td { 
+            padding: 10px; 
+            border-bottom: 1px solid #eee; 
+            font-size: 14px;
+            vertical-align: middle;
+        }
+        .badge-info { background: #cce5ff; color: #004085; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; }
+        .badge-success { background: #d4edda; color: #155724; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; }
+        .badge-danger { background: #f8d7da; color: #721c24; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; }
         .text-muted { color: #999; }
-        .log-info { font-size: 12px; color: #888; white-space: nowrap; }
+        .log-info { font-size: 14px; color: #888; white-space: nowrap; }
 
         @media (max-width: 768px) { 
             .row { grid-template-columns: 1fr 1fr; }
             .header-dashboard { flex-direction: column; align-items: flex-start; }
             .disco-indicator { align-self: flex-start; }
-            table { font-size: 11px; }
-            th, td { padding: 4px; }
-            .badge-info, .badge-success, .badge-danger { font-size: 9px; padding: 1px 5px; }
-            .log-info { font-size: 10px; }
+            table { font-size: 12px; }
+            th, td { padding: 6px; font-size: 12px; }
+            .badge-info, .badge-success, .badge-danger { font-size: 11px; padding: 2px 8px; }
+            .log-info { font-size: 12px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Título com indicador de disco alinhado à direita -->
         <div class="header-dashboard">
             <h1>📊 Dashboard CGNAT</h1>
             <div class="disco-indicator">
@@ -1273,7 +1286,7 @@ include 'menu.php';
                     ?>
                     <div class="barra-mini-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
                 </div>
-                <span style="font-size:10px;color:#888;"><?php echo $disco_uso; ?></span>
+                <span style="font-size:11px;color:#888;"><?php echo $disco_uso; ?></span>
                 <span class="db">DB: <?php echo $tamanho_db; ?></span>
             </div>
         </div>
@@ -1286,7 +1299,7 @@ include 'menu.php';
         </div>
 
         <div style="margin-top:30px;">
-            <h3>📋 Últimas Consultas</h3>
+            <h3 style="font-size:18px;margin-bottom:15px;">📋 Últimas Consultas</h3>
             <div style="overflow-x:auto;">
                 <table>
                     <thead>
@@ -1304,7 +1317,7 @@ include 'menu.php';
                         <?php if ($ultimas): ?>
                             <?php foreach ($ultimas as $row): ?>
                             <tr>
-                                <td style="white-space:nowrap;font-size:12px;"><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
+                                <td style="white-space:nowrap;"><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
                                 <td><?php echo htmlspecialchars($row['usuario']); ?></td>
                                 <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
                                 <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
@@ -1329,7 +1342,7 @@ include 'menu.php';
                             </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="7" style="text-align:center;color:#999;">Nenhuma consulta realizada</td></tr>
+                            <tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Nenhuma consulta realizada</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
