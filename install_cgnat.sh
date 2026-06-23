@@ -1137,11 +1137,19 @@ $total_clientes = $stmt->fetchColumn();
 
 // Buscar espaço em disco
 $disco_info = shell_exec("df -h / | grep -v Filesystem | awk '{print $2,$3,$4,$5}'");
-$disco_parts = explode(' ', trim($disco_info));
+$disco_parts = preg_split('/\s+/', trim($disco_info));
 $disco_total = $disco_parts[0] ?? 'N/A';
 $disco_usado = $disco_parts[1] ?? 'N/A';
 $disco_livre = $disco_parts[2] ?? 'N/A';
 $disco_uso = $disco_parts[3] ?? 'N/A';
+
+// Buscar tamanho do banco
+$tamanho_db = shell_exec("sudo -u postgres psql -d cgnat_logs -t -c \"SELECT pg_size_pretty(pg_database_size('cgnat_logs'));\" 2>/dev/null");
+$tamanho_db = trim($tamanho_db) ?: 'N/A';
+
+// Buscar tamanho dos backups
+$backup_size = shell_exec("du -sh /backup/cgnat/ 2>/dev/null | awk '{print $1}'");
+$backup_size = trim($backup_size) ?: '0B';
 
 // Buscar últimas consultas
 $stmt = $db->query("
@@ -1175,53 +1183,12 @@ include 'menu.php';
         .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         h1 { color: #333; margin-bottom: 30px; }
         .row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .card { background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center; position: relative; }
+        .card { background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center; }
         .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
-        .card .label { color: #888; margin-top: 5px; }
+        .card .label { color: #888; margin-top: 5px; font-size: 14px; }
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
-        .card-disco { 
-            background: #f8f9fa; 
-            padding: 20px; 
-            border-radius: 10px; 
-            text-align: center;
-            grid-column: span 1;
-            min-width: 200px;
-        }
-        .card-disco .numero { 
-            font-size: 28px; 
-            font-weight: bold; 
-            color: #667eea; 
-        }
-        .card-disco .label { 
-            color: #888; 
-            margin-top: 5px; 
-            font-size: 13px;
-        }
-        .card-disco .barra {
-            width: 100%;
-            height: 8px;
-            background: #e9ecef;
-            border-radius: 4px;
-            margin-top: 10px;
-            overflow: hidden;
-        }
-        .card-disco .barra-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.3s;
-        }
-        .card-disco .barra-fill.verde { background: #27ae60; }
-        .card-disco .barra-fill.amarelo { background: #f39c12; }
-        .card-disco .barra-fill.vermelho { background: #e74c3c; }
-        .card-disco .detalhes {
-            display: flex;
-            justify-content: space-between;
-            font-size: 12px;
-            color: #888;
-            margin-top: 5px;
-        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -1233,79 +1200,74 @@ include 'menu.php';
         .badge-success { background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .badge-danger { background: #f8d7da; color: #721c24; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
         .text-muted { color: #999; }
-        .disco-info {
-            font-size: 13px;
+
+        /* DISCRETO - Indicador de disco no canto inferior */
+        .disco-indicator {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(255,255,255,0.95);
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 8px 14px;
+            font-size: 12px;
             color: #555;
-            margin-top: 2px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 999;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .disco-indicator .barra-mini {
+            width: 60px;
+            height: 4px;
+            background: #e9ecef;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .disco-indicator .barra-mini-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
+        .disco-indicator .barra-mini-fill.verde { background: #27ae60; }
+        .disco-indicator .barra-mini-fill.amarelo { background: #f39c12; }
+        .disco-indicator .barra-mini-fill.vermelho { background: #e74c3c; }
+        .disco-indicator .texto {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .disco-indicator .texto .uso {
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .disco-indicator .texto .detalhe {
+            color: #999;
+            font-size: 11px;
         }
         @media (max-width: 768px) { 
             .row { grid-template-columns: 1fr 1fr; }
-            .card-disco { grid-column: span 2; }
+            .disco-indicator { 
+                bottom: 5px; 
+                right: 5px; 
+                padding: 5px 10px;
+                font-size: 10px;
+                flex-wrap: wrap;
+            }
+            .disco-indicator .barra-mini { width: 40px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>📊 Dashboard CGNAT</h1>
-        
         <div class="row">
             <div class="card card-verde"><div class="numero"><?php echo $hoje; ?></div><div class="label">Consultas Hoje</div></div>
             <div class="card card-amarelo"><div class="numero"><?php echo $semana; ?></div><div class="label">Consultas (7 dias)</div></div>
             <div class="card"><div class="numero"><?php echo $mes; ?></div><div class="label">Consultas (30 dias)</div></div>
             <div class="card card-vermelho"><div class="numero"><?php echo number_format($total_logs); ?></div><div class="label">Total Logs CGNAT</div></div>
-        </div>
-
-        <!-- Cards de Disco -->
-        <div class="row" style="margin-bottom: 30px;">
-            <div class="card card-verde"><div class="numero"><?php echo number_format($total_clientes); ?></div><div class="label">Clientes Cadastrados</div></div>
-            <div class="card-disco">
-                <div class="numero"><?php echo $disco_usado; ?> / <?php echo $disco_total; ?></div>
-                <div class="label">💾 Uso de Disco</div>
-                <div class="barra">
-                    <?php 
-                    $percentual = (int)str_replace('%', '', $disco_uso);
-                    $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
-                    ?>
-                    <div class="barra-fill <?php echo $cor; ?>" style="width: <?php echo $percentual; ?>%;"></div>
-                </div>
-                <div class="detalhes">
-                    <span>Livre: <?php echo $disco_livre; ?></span>
-                    <span>Usado: <?php echo $disco_uso; ?></span>
-                </div>
-            </div>
-            <div class="card-disco">
-                <div class="numero" style="font-size: 22px;">
-                    <?php 
-                        // Calcular tamanho do banco
-                        $tamanho_db = shell_exec("sudo -u postgres psql -d cgnat_logs -t -c \"SELECT pg_size_pretty(pg_database_size('cgnat_logs'));\" 2>/dev/null");
-                        echo trim($tamanho_db) ?: 'N/A';
-                    ?>
-                </div>
-                <div class="label">🗄️ Tamanho do Banco</div>
-                <div class="disco-info">
-                    <?php 
-                        // Calcular quantidade de logs por tamanho
-                        $total_logs_size = shell_exec("sudo -u postgres psql -d cgnat_logs -t -c \"SELECT COUNT(*) FROM cgnat_logs;\" 2>/dev/null");
-                        echo number_format(trim($total_logs_size)) . ' registros';
-                    ?>
-                </div>
-            </div>
-            <div class="card-disco">
-                <div class="numero" style="font-size: 22px;">
-                    <?php 
-                        // Calcular tamanho dos backups
-                        $backup_size = shell_exec("du -sh /backup/cgnat/ 2>/dev/null | awk '{print $1}'");
-                        echo trim($backup_size) ?: '0B';
-                    ?>
-                </div>
-                <div class="label">💿 Backups</div>
-                <div class="disco-info">
-                    <?php 
-                        $backup_count = shell_exec("ls -1 /backup/cgnat/*.dump.gz 2>/dev/null | wc -l");
-                        echo trim($backup_count) . ' arquivos';
-                    ?>
-                </div>
-            </div>
         </div>
 
         <div style="margin-top:30px;">
@@ -1358,6 +1320,24 @@ include 'menu.php';
                 </tbody>
             </table>
         </div>
+    </div>
+
+    <!-- DISCRETO: Indicador de Disco no canto inferior direito -->
+    <div class="disco-indicator">
+        <span>💾</span>
+        <div class="texto">
+            <span class="uso"><?php echo $disco_usado; ?></span>
+            <span class="detalhe">/ <?php echo $disco_total; ?></span>
+        </div>
+        <div class="barra-mini">
+            <?php 
+            $percentual = (int)str_replace('%', '', $disco_uso);
+            $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
+            ?>
+            <div class="barra-mini-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
+        </div>
+        <span style="font-size:11px;color:#888;"><?php echo $disco_uso; ?></span>
+        <span style="font-size:10px;color:#bbb;margin-left:4px;">| DB: <?php echo $tamanho_db; ?></span>
     </div>
 </body>
 </html>
