@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.1
+# Versão: 1.3
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
@@ -37,7 +37,7 @@ check_root() {
 }
 
 # ============================================================
-# CONFIGURAÇÕES - ALTERADAS PARA JOÃO PESSOA
+# CONFIGURAÇÕES
 # ============================================================
 
 DB_PASS_CGNAT="WBT@00000000"
@@ -55,14 +55,12 @@ CISCO_PASS="WBT@0000000"
 TIMEZONE="America/Recife"
 
 # ============================================================
-# INÍCIO DA INSTALAÇÃO
+# INÍCIO
 # ============================================================
 
 clear
 print_header "🚀 INSTALADOR CGNAT LGPD - SISTEMA COMPLETO"
 echo "📌 Versão para João Pessoa/PB"
-echo ""
-echo "Este script irá instalar e configurar todo o sistema CGNAT LGPD"
 echo ""
 echo "Serão instalados:"
 echo "  ✅ PostgreSQL 15 com banco de dados"
@@ -107,12 +105,12 @@ apt upgrade -y
 print_success "Sistema atualizado"
 
 # ============================================================
-# 4. INSTALAR PACOTES (CORRIGIDO)
+# 4. INSTALAR PACOTES (COM SUDO)
 # ============================================================
 print_header "4. INSTALANDO PACOTES"
 
-# Lista de pacotes (mysql-client removido)
 apt install -y \
+    sudo \
     wget curl vim htop net-tools \
     build-essential \
     python3 python3-pip python3-venv \
@@ -129,32 +127,45 @@ apt install -y \
 print_success "Pacotes instalados"
 
 # ============================================================
-# 5. CRIAR DIRETÓRIOS (CORRIGIDO)
+# 5. INICIAR POSTGRESQL
 # ============================================================
-print_header "5. CRIANDO DIRETÓRIOS"
+print_header "5. INICIANDO POSTGRESQL"
 
-# Criar diretórios
+systemctl start postgresql
+systemctl enable postgresql
+sleep 3
+
+if ! systemctl is-active --quiet postgresql; then
+    print_error "PostgreSQL não iniciou. Tentando reiniciar..."
+    systemctl restart postgresql
+    sleep 3
+fi
+
+print_success "PostgreSQL iniciado"
+
+# ============================================================
+# 6. CRIAR DIRETÓRIOS
+# ============================================================
+print_header "6. CRIANDO DIRETÓRIOS"
+
 mkdir -p /opt/cgnat
 mkdir -p /var/www/html/cgnat
 mkdir -p /var/log/cgnat
 mkdir -p /backup/cgnat
 mkdir -p /var/run/cgnat
 
-# Ajustar permissões (sem usar syslog:syslog)
-chown -R www-data:www-data /var/www/html/cgnat
-chown -R root:root /opt/cgnat
-chown -R root:root /var/log/cgnat
-chown -R postgres:postgres /backup/cgnat
-chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat
+chown -R www-data:www-data /var/www/html/cgnat 2>/dev/null || true
+chown -R root:root /opt/cgnat 2>/dev/null || true
+chown -R root:root /var/log/cgnat 2>/dev/null || true
+chown -R postgres:postgres /backup/cgnat 2>/dev/null || true
+chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 
 print_success "Diretórios criados"
 
 # ============================================================
-# 6. CONFIGURAR POSTGRESQL
+# 7. CONFIGURAR POSTGRESQL
 # ============================================================
-print_header "6. CONFIGURANDO POSTGRESQL"
-
-systemctl stop postgresql
+print_header "7. CONFIGURANDO POSTGRESQL"
 
 cat > /etc/postgresql/15/main/postgresql.conf << 'PG_CONF'
 data_directory = '/var/lib/postgresql/15/main'
@@ -192,27 +203,34 @@ host    all             all             127.0.0.1/32            md5
 host    all             all             ::1/128                 md5
 PG_HBA
 
-systemctl start postgresql
+systemctl restart postgresql
+sleep 2
 
-sudo -u postgres psql << 'PG_SQL'
+sudo -u postgres psql << 'PG_SQL' 2>/dev/null || {
+    print_error "Erro ao criar banco. Tentando novamente..."
+    sleep 2
+    sudo -u postgres psql << 'PG_SQL2'
 CREATE USER cgnat_parser WITH PASSWORD 'WBT@0000000';
 CREATE USER cgnat_admin WITH PASSWORD 'WBT@00000000';
 CREATE DATABASE cgnat_logs OWNER cgnat_parser;
 GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_parser;
 GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;
 CREATE EXTENSION IF NOT EXISTS dblink;
-PG_SQL
+PG_SQL2
+}
 
 print_success "PostgreSQL configurado"
 
 # ============================================================
-# 7. CRIAR TABELAS
+# 8. CRIAR TABELAS
 # ============================================================
-print_header "7. CRIANDO TABELAS"
+print_header "8. CRIANDO TABELAS"
 
-sudo -u postgres psql -d cgnat_logs << 'PG_TABLES'
--- Tabela de logs CGNAT
-CREATE TABLE cgnat_logs (
+sudo -u postgres psql -d cgnat_logs << 'PG_TABLES' 2>/dev/null || {
+    print_error "Erro ao criar tabelas. Tentando novamente..."
+    sleep 2
+    sudo -u postgres psql -d cgnat_logs << 'PG_TABLES2'
+CREATE TABLE IF NOT EXISTS cgnat_logs (
     id BIGSERIAL,
     data_hora TIMESTAMP NOT NULL,
     acao VARCHAR(10),
@@ -230,8 +248,7 @@ CREATE TABLE cgnat_logs (
     criado_em TIMESTAMP DEFAULT NOW()
 ) PARTITION BY RANGE (data_hora);
 
--- Tabela de clientes
-CREATE TABLE clientes (
+CREATE TABLE IF NOT EXISTS clientes (
     id BIGSERIAL PRIMARY KEY,
     login VARCHAR(100) NOT NULL UNIQUE,
     nome TEXT,
@@ -239,8 +256,7 @@ CREATE TABLE clientes (
     criado_em TIMESTAMP DEFAULT NOW()
 );
 
--- Tabela de auditoria
-CREATE TABLE lgpd_audit (
+CREATE TABLE IF NOT EXISTS lgpd_audit (
     id BIGSERIAL PRIMARY KEY,
     usuario VARCHAR(100) NOT NULL,
     ip_consultado INET,
@@ -253,8 +269,7 @@ CREATE TABLE lgpd_audit (
     user_agent TEXT
 );
 
--- Tabela de usuários
-CREATE TABLE usuarios (
+CREATE TABLE IF NOT EXISTS usuarios (
     id BIGSERIAL PRIMARY KEY,
     usuario VARCHAR(50) NOT NULL UNIQUE,
     senha_hash TEXT NOT NULL,
@@ -265,8 +280,7 @@ CREATE TABLE usuarios (
     criado_em TIMESTAMP DEFAULT NOW()
 );
 
--- Tabela de alertas
-CREATE TABLE lgpd_alertas (
+CREATE TABLE IF NOT EXISTS lgpd_alertas (
     id BIGSERIAL PRIMARY KEY,
     usuario VARCHAR(50),
     motivo TEXT,
@@ -276,8 +290,7 @@ CREATE TABLE lgpd_alertas (
     resolvido_em TIMESTAMP
 );
 
--- Tabela de sessões PPPoE
-CREATE TABLE pppoe_sessoes (
+CREATE TABLE IF NOT EXISTS pppoe_sessoes (
     id BIGSERIAL PRIMARY KEY,
     login VARCHAR(100) NOT NULL,
     ip_privado INET NOT NULL,
@@ -289,26 +302,23 @@ CREATE TABLE pppoe_sessoes (
     criado_em TIMESTAMP DEFAULT NOW()
 );
 
--- Índices
-CREATE INDEX idx_cgnat_ip_publico ON cgnat_logs(ip_publico);
-CREATE INDEX idx_cgnat_ip_privado ON cgnat_logs(ip_privado);
-CREATE INDEX idx_cgnat_data_hora ON cgnat_logs(data_hora);
-CREATE INDEX idx_cgnat_ip_porta_data ON cgnat_logs(ip_publico, porta_publica, data_hora);
-CREATE INDEX idx_cgnat_acao ON cgnat_logs(acao);
-CREATE INDEX idx_cgnat_login ON cgnat_logs(login);
-CREATE INDEX idx_clientes_ip_privado ON clientes(ip_privado);
-CREATE INDEX idx_clientes_login ON clientes(login);
-CREATE INDEX idx_lgpd_data ON lgpd_audit(data_consulta);
-CREATE INDEX idx_usuarios_usuario ON usuarios(usuario);
+CREATE INDEX IF NOT EXISTS idx_cgnat_ip_publico ON cgnat_logs(ip_publico);
+CREATE INDEX IF NOT EXISTS idx_cgnat_ip_privado ON cgnat_logs(ip_privado);
+CREATE INDEX IF NOT EXISTS idx_cgnat_data_hora ON cgnat_logs(data_hora);
+CREATE INDEX IF NOT EXISTS idx_cgnat_ip_porta_data ON cgnat_logs(ip_publico, porta_publica, data_hora);
+CREATE INDEX IF NOT EXISTS idx_cgnat_acao ON cgnat_logs(acao);
+CREATE INDEX IF NOT EXISTS idx_cgnat_login ON cgnat_logs(login);
+CREATE INDEX IF NOT EXISTS idx_clientes_ip_privado ON clientes(ip_privado);
+CREATE INDEX IF NOT EXISTS idx_clientes_login ON clientes(login);
+CREATE INDEX IF NOT EXISTS idx_lgpd_data ON lgpd_audit(data_consulta);
+CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario);
 
--- Usuários padrão
 INSERT INTO usuarios (usuario, senha_hash, nome_completo, perfil) VALUES
 ('admin', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Administrador', 'admin'),
 ('juridico', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Departamento Jurídico', 'juridico'),
 ('operador', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Operador', 'operador')
 ON CONFLICT (usuario) DO NOTHING;
 
--- Partição atual
 DO $$
 DECLARE
     mes_atual DATE;
@@ -341,19 +351,19 @@ BEGIN
     ', 'idx_' || nome_particao || '_data', nome_particao);
 END $$;
 
--- Permissões
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_admin;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cgnat_admin;
 GRANT INSERT ON cgnat_logs TO cgnat_parser;
 GRANT INSERT ON clientes TO cgnat_parser;
-PG_TABLES
+PG_TABLES2
+}
 
 print_success "Tabelas criadas"
 
 # ============================================================
-# 8. AMBIENTE PYTHON
+# 9. AMBIENTE PYTHON
 # ============================================================
-print_header "8. CONFIGURANDO AMBIENTE PYTHON"
+print_header "9. CONFIGURANDO AMBIENTE PYTHON"
 
 cd /opt/cgnat
 python3 -m venv venv
@@ -365,9 +375,9 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 9. ARQUIVO CONFIG.PHP
+# 10. ARQUIVO CONFIG.PHP
 # ============================================================
-print_header "9. CRIANDO ARQUIVOS PHP"
+print_header "10. CRIANDO ARQUIVOS PHP"
 
 cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 <?php
@@ -389,18 +399,14 @@ CONFIG_PHP
 print_success "Arquivos PHP criados"
 
 # ============================================================
-# 10. CRONJOBS
+# 11. CRONJOBS
 # ============================================================
-print_header "10. CONFIGURANDO CRONJOBS"
+print_header "11. CONFIGURANDO CRONJOBS"
 
 cat > /tmp/crontab_cgnat << 'CRON'
-# Backup diário - 02:00
 0 2 * * * /usr/local/bin/backup_cgnat.sh >> /var/log/cgnat/backup.log 2>&1
-# Sincronização MK-AUTH - a cada 2 minutos
 */2 * * * * /usr/local/bin/sync_mkauth.sh >> /var/log/cgnat/sync_mkauth.log 2>&1
-# Criar partições - dia 25 de cada mês
 25 0 25 * * /usr/local/bin/create_cgnat_partition.sh >> /var/log/cgnat/partition_create.log 2>&1
-# Monitoramento de disco - 08:00
 0 8 * * * /usr/local/bin/monitor_disco.sh >> /var/log/cgnat/disco.log 2>&1
 CRON
 
@@ -410,9 +416,9 @@ rm /tmp/crontab_cgnat
 print_success "Cronjobs configurados"
 
 # ============================================================
-# 11. SCRIPTS ÚTEIS
+# 12. SCRIPTS ÚTEIS
 # ============================================================
-print_header "11. CRIANDO SCRIPTS ÚTEIS"
+print_header "12. CRIANDO SCRIPTS ÚTEIS"
 
 cat > /usr/local/bin/backup_cgnat.sh << 'BACKUP'
 #!/bin/bash
@@ -431,7 +437,7 @@ echo "=== MONITORAMENTO DE DISCO CGNAT ==="
 echo "Data: $(date)"
 echo ""
 echo "📊 Tamanho do banco:"
-sudo -u postgres psql -d cgnat_logs -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho;"
+sudo -u postgres psql -d cgnat_logs -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho;" 2>/dev/null || echo "Erro ao consultar banco"
 echo ""
 echo "💾 Espaço em disco:"
 df -h /
@@ -444,9 +450,9 @@ chmod +x /usr/local/bin/monitor_disco.sh
 print_success "Scripts criados"
 
 # ============================================================
-# 12. CONFIGURAR RSYSLOG
+# 13. CONFIGURAR RSYSLOG
 # ============================================================
-print_header "12. CONFIGURANDO RSYSLOG"
+print_header "13. CONFIGURANDO RSYSLOG"
 
 cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
 module(load="imudp")
@@ -459,31 +465,33 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
 }
 RSYSLOG
 
-systemctl restart rsyslog
+systemctl restart rsyslog 2>/dev/null || true
 print_success "Rsyslog configurado"
 
 # ============================================================
-# 13. PERMISSÕES FINAIS
+# 14. PERMISSÕES FINAIS
 # ============================================================
-print_header "13. AJUSTANDO PERMISSÕES FINAIS"
+print_header "14. AJUSTANDO PERMISSÕES FINAIS"
 
-chown -R www-data:www-data /var/www/html/cgnat/
-chmod -R 755 /var/www/html/cgnat/
-chmod 644 /var/www/html/cgnat/*.php
-systemctl restart apache2
+chown -R www-data:www-data /var/www/html/cgnat/ 2>/dev/null || true
+chmod -R 755 /var/www/html/cgnat/ 2>/dev/null || true
+chmod 644 /var/www/html/cgnat/*.php 2>/dev/null || true
+systemctl restart apache2 2>/dev/null || true
 
 print_success "Permissões ajustadas"
 
 # ============================================================
-# 14. RESULTADO FINAL
+# 15. RESULTADO FINAL
 # ============================================================
 print_header "✅ INSTALAÇÃO CONCLUÍDA!"
+
+IP=$(hostname -I | awk '{print $1}')
 
 echo "============================================================"
 echo "  📋 INFORMAÇÕES DO SISTEMA"
 echo "============================================================"
 echo ""
-echo "🌐 URL de acesso: http://$(hostname -I | awk '{print $1}')/cgnat/login.php"
+echo "🌐 URL de acesso: http://$IP/cgnat/login.php"
 echo ""
 echo "🔐 CREDENCIAIS DE ACESSO:"
 echo "   Usuário: admin"
@@ -501,7 +509,7 @@ echo "   Rsyslog: systemctl status rsyslog"
 echo "   Apache: systemctl status apache2"
 echo ""
 echo "📊 PRÓXIMOS PASSOS:"
-echo "   1. Acesse a interface web: http://$(hostname -I | awk '{print $1}')/cgnat/login.php"
+echo "   1. Acesse a interface web: http://$IP/cgnat/login.php"
 echo "   2. Configure o Cisco ASR1001-X para enviar logs"
 echo "   3. Execute a sincronização MK-AUTH: /usr/local/bin/sync_mkauth.sh"
 echo ""
