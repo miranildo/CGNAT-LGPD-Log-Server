@@ -195,7 +195,7 @@ sudo -u postgres psql -d cgnat_logs -c "CREATE EXTENSION IF NOT EXISTS dblink;" 
 print_success "Usuários e banco criados"
 
 # ============================================================
-# 8. CRIAR TABELAS
+# 8. CRIAR TABELAS (COM AS NOVAS COLUNAS PARA LGPD)
 # ============================================================
 print_header "8. CRIANDO TABELAS"
 
@@ -234,6 +234,12 @@ CREATE TABLE IF NOT EXISTS lgpd_audit (
     data_consulta TIMESTAMP DEFAULT NOW(),
     motivo TEXT,
     protocolo_judicial VARCHAR(50),
+    ip_privado INET,
+    cliente_nome TEXT,
+    log_data_hora TIMESTAMP,
+    log_acao VARCHAR(10),
+    log_destino TEXT,
+    log_protocolo VARCHAR(10),
     resultado_registros INTEGER,
     ip_origem_consulta INET,
     user_agent TEXT
@@ -281,6 +287,9 @@ CREATE INDEX IF NOT EXISTS idx_cgnat_login ON cgnat_logs(login);
 CREATE INDEX IF NOT EXISTS idx_clientes_ip_privado ON clientes(ip_privado);
 CREATE INDEX IF NOT EXISTS idx_clientes_login ON clientes(login);
 CREATE INDEX IF NOT EXISTS idx_lgpd_data ON lgpd_audit(data_consulta);
+CREATE INDEX IF NOT EXISTS idx_lgpd_ip_publico ON lgpd_audit(ip_consultado);
+CREATE INDEX IF NOT EXISTS idx_lgpd_ip_privado ON lgpd_audit(ip_privado);
+CREATE INDEX IF NOT EXISTS idx_lgpd_cliente ON lgpd_audit(cliente_nome);
 CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario);
 
 INSERT INTO usuarios (usuario, senha_hash, nome_completo, perfil) VALUES
@@ -327,7 +336,7 @@ GRANT INSERT ON cgnat_logs TO cgnat_parser;
 GRANT INSERT ON clientes TO cgnat_parser;
 EOF
 
-print_success "Tabelas criadas"
+print_success "Tabelas criadas com as novas colunas LGPD"
 
 # ============================================================
 # 9. AMBIENTE PYTHON
@@ -1226,6 +1235,17 @@ cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
+
+$resultados = null;
+$total = 0;
+$mensagem = '';
+$cliente_nome = '';
+$ip_privado = '';
+$log_data_hora = '';
+$log_acao = '';
+$log_destino = '';
+$log_protocolo = '';
+
 // Verificar se veio via GET (reabrir consulta)
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset($_GET['porta'])) {
     $_POST['ip_publico'] = $_GET['ip_publico'];
@@ -1237,14 +1257,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset(
     $_POST['motivo'] = $_GET['motivo'] ?? 'Reabertura de consulta';
     $_POST['protocolo'] = $_GET['protocolo'] ?? '';
     
-    // Forçar o processamento como se fosse POST
     $_SERVER['REQUEST_METHOD'] = 'POST';
 }
-
-$resultados = null;
-$total = 0;
-$mensagem = '';
-$cliente_nome = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip_publico = $_POST['ip_publico'] ?? '';
@@ -1257,9 +1271,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($ip_publico && $porta) {
         try {
             $db = getDBConnection();
-            $stmt = $db->prepare("INSERT INTO lgpd_audit (usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$_SESSION['usuario'], $ip_publico, $porta, $motivo, $protocolo]);
             
+            // CONSULTA COM JOIN PARA PEGAR O NOME DO CLIENTE
             $stmt = $db->prepare("
                 SELECT 
                     c.data_hora,
@@ -1285,10 +1298,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $total = count($resultados);
             
-            if ($total > 0 && !empty($resultados[0]['cliente_nome'])) {
-                $cliente_nome = $resultados[0]['cliente_nome'];
+            // Pegar informações do primeiro resultado
+            if ($total > 0) {
+                $primeiro = $resultados[0];
+                $cliente_nome = $primeiro['cliente_nome'] ?? 'Nao identificado';
+                $ip_privado = $primeiro['ip_privado'] ?? null;
+                $log_data_hora = $primeiro['data_hora'] ?? null;
+                $log_acao = $primeiro['acao'] ?? null;
+                $log_destino = ($primeiro['ip_destino'] ?? '') . ':' . ($primeiro['porta_destino'] ?? '');
+                $log_protocolo = $primeiro['protocolo'] ?? null;
             }
+            
+            // SALVAR NA TABELA lgpd_audit COM TODAS AS INFORMAÇÕES
+            $stmt = $db->prepare("
+                INSERT INTO lgpd_audit (
+                    usuario, 
+                    ip_consultado, 
+                    porta_consultada, 
+                    motivo, 
+                    protocolo_judicial,
+                    ip_privado,
+                    cliente_nome,
+                    log_data_hora,
+                    log_acao,
+                    log_destino,
+                    log_protocolo,
+                    resultado_registros,
+                    ip_origem_consulta,
+                    user_agent
+                ) VALUES (?, ?, ?, ?, ?, ?::inet, ?, ?, ?, ?, ?, ?, ?::inet, ?)
+            ");
+            $stmt->execute([
+                $_SESSION['usuario'],
+                $ip_publico,
+                $porta,
+                $motivo,
+                $protocolo,
+                $ip_privado,
+                $cliente_nome,
+                $log_data_hora,
+                $log_acao,
+                $log_destino,
+                $log_protocolo,
+                $total,
+                $_SERVER['REMOTE_ADDR'] ?? null,
+                $_SERVER['HTTP_USER_AGENT'] ?? null
+            ]);
+            
             $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado.';
+            
         } catch (Exception $e) {
             $mensagem = "❌ Erro: " . $e->getMessage();
         }
@@ -1300,8 +1358,9 @@ include 'menu.php';
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consulta CGNAT</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta CGNAT - LGPD</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
@@ -1310,14 +1369,14 @@ include 'menu.php';
         .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
-        input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
-        input:focus { border-color: #667eea; outline: none; }
+        input, select { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+        input:focus, select:focus { border-color: #667eea; outline: none; }
         .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn:hover { opacity: 0.9; }
         .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-        .results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
+        .results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
+        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
         td { padding: 10px; border-bottom: 1px solid #eee; }
         tr:hover { background: #f8f9fa; }
         .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
@@ -1327,74 +1386,134 @@ include 'menu.php';
         .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
         .client-info { background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #667eea; }
         .client-info h3 { color: #004085; margin: 0; }
+        .text-muted { color: #999; }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>🔍 Consulta CGNAT - LGPD</h1>
+        
         <?php if ($mensagem): ?>
-        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false || strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'; ?>"><?php echo $mensagem; ?></div>
+        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false ? 'warning' : (strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'); ?>">
+            <?php echo $mensagem; ?>
+        </div>
         <?php endif; ?>
-        <?php if ($cliente_nome): ?>
-        <div class="client-info"><h3>👤 Cliente: <?php echo htmlspecialchars($cliente_nome); ?></h3></div>
+        
+        <?php if ($cliente_nome && $cliente_nome != 'Nao identificado'): ?>
+        <div class="client-info">
+            <h3>👤 Cliente: <?php echo htmlspecialchars($cliente_nome); ?></h3>
+            <?php if ($ip_privado): ?>
+            <p style="margin-top:5px;color:#555;font-size:14px;">
+                📍 IP Privado: <strong><?php echo htmlspecialchars($ip_privado); ?></strong>
+            </p>
+            <?php endif; ?>
+        </div>
         <?php endif; ?>
+        
         <form method="POST" id="formConsulta">
             <div class="row">
-                <div class="form-group"><label>IP Público *</label><input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.19" required value="<?php echo $_POST['ip_publico'] ?? ''; ?>"></div>
-                <div class="form-group"><label>Porta Pública *</label><input type="number" name="porta" id="porta" placeholder="Ex: 51478" required value="<?php echo $_POST['porta'] ?? ''; ?>"></div>
+                <div class="form-group">
+                    <label>IP Público *</label>
+                    <input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.18" required value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
+                </div>
+                <div class="form-group">
+                    <label>Porta Pública *</label>
+                    <input type="number" name="porta" id="porta" placeholder="Ex: 51478" required value="<?php echo $_POST['porta'] ?? ''; ?>">
+                </div>
             </div>
             <div class="row">
-                <div class="form-group"><label>Data Início</label><input type="date" name="data_inicio" id="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>"></div>
-                <div class="form-group"><label>Data Fim</label><input type="date" name="data_fim" id="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>"></div>
+                <div class="form-group">
+                    <label>Data Início</label>
+                    <input type="date" name="data_inicio" id="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>">
+                </div>
+                <div class="form-group">
+                    <label>Data Fim</label>
+                    <input type="date" name="data_fim" id="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>">
+                </div>
             </div>
             <div class="row">
-                <div class="form-group"><label>Hora Início</label><input type="time" name="hora_inicio" id="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>"></div>
-                <div class="form-group"><label>Hora Fim</label><input type="time" name="hora_fim" id="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>"></div>
+                <div class="form-group">
+                    <label>Hora Início</label>
+                    <input type="time" name="hora_inicio" id="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>">
+                </div>
+                <div class="form-group">
+                    <label>Hora Fim</label>
+                    <input type="time" name="hora_fim" id="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>">
+                </div>
             </div>
             <div class="row">
-                <div class="form-group"><label>Motivo</label><input type="text" name="motivo" id="motivo" value="Consulta LGPD"></div>
-                <div class="form-group"><label>Protocolo</label><input type="text" name="protocolo" id="protocolo" placeholder="Número do processo"></div>
+                <div class="form-group">
+                    <label>Motivo</label>
+                    <input type="text" name="motivo" id="motivo" value="Consulta LGPD">
+                </div>
+                <div class="form-group">
+                    <label>Protocolo Judicial</label>
+                    <input type="text" name="protocolo" id="protocolo" placeholder="Número do processo">
+                </div>
             </div>
             <button type="submit" class="btn">🔍 Consultar</button>
             <button type="button" class="btn btn-danger" onclick="limparFormulario()" style="margin-left:10px;">↺ Limpar</button>
         </form>
+        
         <?php if ($resultados && $total > 0): ?>
         <div class="results">
             <h3>📋 Resultados (<?php echo $total; ?> registros)</h3>
-            <div style="overflow-x:auto; margin-top:15px;">
-                <table>
-                    <thead><tr><th>Data/Hora</th><th>Evento</th><th>IP Cliente</th><th>Porta</th><th>IP Público</th><th>Porta Pública</th><th>Destino</th><th>Protocolo</th><th>Cliente</th></tr></thead>
-                    <tbody>
-                        <?php foreach ($resultados as $row): ?>
-                        <tr>
-                            <td><?php echo htmlspecialchars($row['data_hora']); ?></td>
-                            <td><span class="badge <?php echo $row['acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>"><?php echo $row['acao'] == 'Created' ? '📌 Criação' : '❌ Deleção'; ?></span></td>
-                            <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
-                            <td><?php echo htmlspecialchars($row['porta_privada'] ?? '-'); ?></td>
-                            <td><strong><?php echo htmlspecialchars($row['ip_publico']); ?></strong></td>
-                            <td><strong><?php echo htmlspecialchars($row['porta_publica']); ?></strong></td>
-                            <td><?php echo htmlspecialchars(($row['ip_destino'] ?? '') . ':' . ($row['porta_destino'] ?? '')); ?></td>
-                            <td><?php echo htmlspecialchars($row['protocolo'] ?? '-'); ?></td>
-                            <td><?php if (!empty($row['cliente_nome'])): ?><span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span><?php else: ?><span style="color:#999;">Não identificado</span><?php endif; ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Evento</th>
+                        <th>IP Cliente</th>
+                        <th>Porta</th>
+                        <th>IP Público</th>
+                        <th>Porta Pública</th>
+                        <th>Destino</th>
+                        <th>Protocolo</th>
+                        <th>Cliente</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($resultados as $row): ?>
+                    <tr>
+                        <td><?php echo htmlspecialchars($row['data_hora']); ?></td>
+                        <td>
+                            <span class="badge <?php echo $row['acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
+                                <?php echo $row['acao'] == 'Created' ? '📌 Criação' : '❌ Deleção'; ?>
+                            </span>
+                        </td>
+                        <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($row['porta_privada'] ?? '-'); ?></td>
+                        <td><strong><?php echo htmlspecialchars($row['ip_publico']); ?></strong></td>
+                        <td><strong><?php echo htmlspecialchars($row['porta_publica']); ?></strong></td>
+                        <td><?php echo htmlspecialchars(($row['ip_destino'] ?? '') . ':' . ($row['porta_destino'] ?? '')); ?></td>
+                        <td><?php echo htmlspecialchars($row['protocolo'] ?? '-'); ?></td>
+                        <td>
+                            <?php if (!empty($row['cliente_nome'])): ?>
+                                <span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
+                            <?php elseif (!empty($row['cliente_login'])): ?>
+                                <span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_login']); ?></span>
+                            <?php else: ?>
+                                <span class="text-muted">Não identificado</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
         </div>
         <?php endif; ?>
     </div>
+    
     <script>
     function limparFormulario() {
-        // Limpar todos os campos
         document.getElementById('ip_publico').value = '';
         document.getElementById('porta').value = '';
         document.getElementById('protocolo').value = '';
         
-        // Restaurar valores padrão
         var hoje = new Date().toISOString().split('T')[0];
         document.getElementById('data_inicio').value = hoje;
         document.getElementById('data_fim').value = hoje;
@@ -1402,7 +1521,6 @@ include 'menu.php';
         document.getElementById('hora_fim').value = '23:59';
         document.getElementById('motivo').value = 'Consulta LGPD';
         
-        // Remover mensagens e resultados
         var alerts = document.querySelectorAll('.alert');
         alerts.forEach(function(el) { el.style.display = 'none'; });
         
