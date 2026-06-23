@@ -1143,7 +1143,7 @@ $disco_usado = $disco_parts[1] ?? 'N/A';
 $disco_livre = $disco_parts[2] ?? 'N/A';
 $disco_uso = $disco_parts[3] ?? 'N/A';
 
-// Buscar tamanho do banco - VERSÃO CORRIGIDA (usando o PostgreSQL diretamente via PDO)
+// Buscar tamanho do banco
 try {
     $stmt = $db->query("SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho");
     $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -1151,10 +1151,6 @@ try {
 } catch (Exception $e) {
     $tamanho_db = 'N/A';
 }
-
-// Buscar tamanho dos backups
-$backup_size = shell_exec("du -sh /backup/cgnat/ 2>/dev/null | awk '{print $1}'");
-$backup_size = trim($backup_size) ?: '0B';
 
 // Buscar últimas consultas
 $stmt = $db->query("
@@ -1186,41 +1182,30 @@ include 'menu.php';
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 10px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; margin-bottom: 30px; }
-        .row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .card { background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center; }
-        .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
-        .card .label { color: #888; margin-top: 5px; font-size: 14px; }
-        .card-verde .numero { color: #27ae60; }
-        .card-vermelho .numero { color: #e74c3c; }
-        .card-amarelo .numero { color: #f39c12; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
+        
+        /* Título com indicador de disco alinhado à direita */
+        .header-dashboard {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 10px;
         }
-        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
-        td { padding: 10px; border-bottom: 1px solid #eee; }
-        .badge-info { background: #cce5ff; color: #004085; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .badge-success { background: #d4edda; color: #155724; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .badge-danger { background: #f8d7da; color: #721c24; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .text-muted { color: #999; }
+        .header-dashboard h1 {
+            color: #333;
+            margin: 0;
+        }
         .disco-indicator {
-            position: fixed;
-            bottom: 10px;
-            right: 10px;
-            background: rgba(255,255,255,0.95);
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 6px 12px;
-            font-size: 12px;
-            color: #555;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            z-index: 999;
             display: flex;
             align-items: center;
             gap: 8px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 12px;
+            color: #888;
+            background: #f8f9fa;
+            padding: 4px 12px;
+            border-radius: 20px;
+            border: 1px solid #e9ecef;
         }
         .disco-indicator .barra-mini {
             width: 50px;
@@ -1237,42 +1222,62 @@ include 'menu.php';
         .disco-indicator .barra-mini-fill.verde { background: #27ae60; }
         .disco-indicator .barra-mini-fill.amarelo { background: #f39c12; }
         .disco-indicator .barra-mini-fill.vermelho { background: #e74c3c; }
-        .disco-indicator .texto {
-            display: flex;
-            align-items: center;
-            gap: 4px;
+        .disco-indicator .uso { font-weight: 600; color: #555; }
+        .disco-indicator .db { color: #bbb; font-size: 10px; border-left: 1px solid #eee; padding-left: 6px; }
+
+        .row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .card { background: #f8f9fa; padding: 20px; border-radius: 10px; text-align: center; position: relative; }
+        .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
+        .card .label { color: #888; margin-top: 5px; font-size: 14px; }
+        .card-verde .numero { color: #27ae60; }
+        .card-vermelho .numero { color: #e74c3c; }
+        .card-amarelo .numero { color: #f39c12; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
         }
-        .disco-indicator .texto .uso {
-            font-weight: 600;
-            font-size: 12px;
-        }
-        .disco-indicator .texto .detalhe {
-            color: #999;
-            font-size: 10px;
-        }
-        .disco-indicator .db-info {
-            font-size: 10px;
-            color: #bbb;
-            border-left: 1px solid #eee;
-            padding-left: 6px;
-        }
+        th { background: #f8f9fa; padding: 10px 8px; text-align: left; border-bottom: 2px solid #dee2e6; font-size: 13px; }
+        td { padding: 8px; border-bottom: 1px solid #eee; font-size: 13px; }
+        .badge-info { background: #cce5ff; color: #004085; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .badge-success { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .badge-danger { background: #f8d7da; color: #721c24; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
+        .text-muted { color: #999; }
+        .log-info { font-size: 12px; color: #888; white-space: nowrap; }
+
         @media (max-width: 768px) { 
             .row { grid-template-columns: 1fr 1fr; }
-            .disco-indicator { 
-                bottom: 5px; 
-                right: 5px; 
-                padding: 4px 8px;
-                font-size: 10px;
-                flex-wrap: wrap;
-                gap: 4px;
-            }
-            .disco-indicator .barra-mini { width: 30px; }
+            .header-dashboard { flex-direction: column; align-items: flex-start; }
+            .disco-indicator { align-self: flex-start; }
+            table { font-size: 11px; }
+            th, td { padding: 4px; }
+            .badge-info, .badge-success, .badge-danger { font-size: 9px; padding: 1px 5px; }
+            .log-info { font-size: 10px; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📊 Dashboard CGNAT</h1>
+        <!-- Título com indicador de disco alinhado à direita -->
+        <div class="header-dashboard">
+            <h1>📊 Dashboard CGNAT</h1>
+            <div class="disco-indicator">
+                <span>💾</span>
+                <span class="uso"><?php echo $disco_usado; ?></span>
+                <span>/ <?php echo $disco_total; ?></span>
+                <div class="barra-mini">
+                    <?php 
+                    $percentual = (int)str_replace('%', '', $disco_uso);
+                    $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
+                    ?>
+                    <div class="barra-mini-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
+                </div>
+                <span style="font-size:10px;color:#888;"><?php echo $disco_uso; ?></span>
+                <span class="db">DB: <?php echo $tamanho_db; ?></span>
+            </div>
+        </div>
+
         <div class="row">
             <div class="card card-verde"><div class="numero"><?php echo $hoje; ?></div><div class="label">Consultas Hoje</div></div>
             <div class="card card-amarelo"><div class="numero"><?php echo $semana; ?></div><div class="label">Consultas (7 dias)</div></div>
@@ -1282,72 +1287,54 @@ include 'menu.php';
 
         <div style="margin-top:30px;">
             <h3>📋 Últimas Consultas</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Data</th>
-                        <th>Usuário</th>
-                        <th>IP</th>
-                        <th>Porta</th>
-                        <th>Cliente</th>
-                        <th>IP Privado</th>
-                        <th>Log Original</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if ($ultimas): ?>
-                        <?php foreach ($ultimas as $row): ?>
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
                         <tr>
-                            <td><?php echo htmlspecialchars($row['data_consulta']); ?></td>
-                            <td><?php echo htmlspecialchars($row['usuario']); ?></td>
-                            <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
-                            <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
-                            <td>
-                                <?php if (!empty($row['cliente_nome'])): ?>
-                                    <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
-                                <?php else: ?>
-                                    <span class="text-muted">Não identificado</span>
-                                <?php endif; ?>
-                            </td>
-                            <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
-                            <td>
-                                <?php if ($row['log_acao']): ?>
-                                    <span class="badge <?php echo $row['log_acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
-                                        <?php echo $row['log_acao']; ?>
-                                    </span>
-                                    <small style="color:#888;">
-                                        <?php echo date('d/m H:i', strtotime($row['log_data_hora'])); ?>
-                                    </small>
-                                <?php else: ?>
-                                    <span class="text-muted">-</span>
-                                <?php endif; ?>
-                            </td>
+                            <th>Data</th>
+                            <th>Usuário</th>
+                            <th>IP</th>
+                            <th>Porta</th>
+                            <th>Cliente</th>
+                            <th>IP Privado</th>
+                            <th>Log Original</th>
                         </tr>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <tr><td colspan="7" style="text-align:center;color:#999;">Nenhuma consulta realizada</td></tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        <?php if ($ultimas): ?>
+                            <?php foreach ($ultimas as $row): ?>
+                            <tr>
+                                <td style="white-space:nowrap;font-size:12px;"><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
+                                <td><?php echo htmlspecialchars($row['usuario']); ?></td>
+                                <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
+                                <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                                <td>
+                                    <?php if (!empty($row['cliente_nome'])): ?>
+                                        <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
+                                <td class="log-info">
+                                    <?php if ($row['log_acao']): ?>
+                                        <span class="badge <?php echo $row['log_acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
+                                            <?php echo $row['log_acao'] == 'Created' ? '📌 Criação' : '❌ Deleção'; ?>
+                                        </span>
+                                        <?php echo date('d/m/Y H:i', strtotime($row['log_data_hora'])); ?>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr><td colspan="7" style="text-align:center;color:#999;">Nenhuma consulta realizada</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
-
-    <!-- DISCRETO: Indicador de Disco no canto inferior direito -->
-    <div class="disco-indicator">
-        <span>💾</span>
-        <div class="texto">
-            <span class="uso"><?php echo $disco_usado; ?></span>
-            <span class="detalhe">/ <?php echo $disco_total; ?></span>
-        </div>
-        <div class="barra-mini">
-            <?php 
-            $percentual = (int)str_replace('%', '', $disco_uso);
-            $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
-            ?>
-            <div class="barra-mini-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
-        </div>
-        <span style="font-size:10px;color:#888;"><?php echo $disco_uso; ?></span>
-        <span class="db-info">DB: <?php echo $tamanho_db; ?></span>
     </div>
 </body>
 </html>
