@@ -1655,8 +1655,8 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
-# Script de Sincronização MK-AUTH (USANDO sis_cliente e sis_adicional)
-cat > /usr/local/bin/sync_mkauth.sh << "SYNC"
+# Script de Sincronização MK-AUTH (CORRIGIDO - usa EOF sem aspas)
+cat > /usr/local/bin/sync_mkauth.sh << EOF
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
 # Usa as tabelas sis_cliente e sis_adicional (corrigido)
@@ -1672,6 +1672,8 @@ DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
 
 TMP_FILE="/tmp/radacct_export_\$\$.csv"
+
+echo "Conectando a \${MK_AUTH_IP}..."
 
 sshpass -p "\${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \${MK_AUTH_USER}@\${MK_AUTH_IP} \
 "mysql -u \${DB_USER} -p\${DB_PASS} -B -N -e '
@@ -1729,7 +1731,7 @@ else
 fi
 
 echo "\$(date): Sincronização concluída."
-SYNC
+EOF
 chmod +x /usr/local/bin/sync_mkauth.sh
 
 # Script de Monitoramento de Disco
