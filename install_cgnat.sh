@@ -1219,7 +1219,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $db->prepare("INSERT INTO lgpd_audit (usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$_SESSION['usuario'], $ip_publico, $porta, $motivo, $protocolo]);
             
-            // CONSULTA CORRIGIDA: usa c.login (login da época do log)
             $stmt = $db->prepare("
                 SELECT 
                     c.data_hora,
@@ -1231,9 +1230,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     c.ip_destino,
                     c.porta_destino,
                     c.protocolo,
-                    c.login as cliente_login,
-                    c.login as cliente_nome
+                    COALESCE(cl.nome, c.login) as cliente_nome,
+                    c.login as cliente_login
                 FROM cgnat_logs c
+                LEFT JOIN clientes cl ON c.login = cl.login
                 WHERE c.ip_publico = ?::inet
                 AND c.porta_publica = ?
                 AND c.data_hora BETWEEN ? AND ?
@@ -1300,25 +1300,25 @@ include 'menu.php';
         <?php if ($cliente_nome): ?>
         <div class="client-info"><h3>👤 Cliente: <?php echo htmlspecialchars($cliente_nome); ?></h3></div>
         <?php endif; ?>
-        <form method="POST">
+        <form method="POST" id="formConsulta">
             <div class="row">
-                <div class="form-group"><label>IP Público *</label><input type="text" name="ip_publico" placeholder="Ex: 190.196.242.19" required value="<?php echo $_POST['ip_publico'] ?? ''; ?>"></div>
-                <div class="form-group"><label>Porta Pública *</label><input type="number" name="porta" placeholder="Ex: 51478" required value="<?php echo $_POST['porta'] ?? ''; ?>"></div>
+                <div class="form-group"><label>IP Público *</label><input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.19" required value="<?php echo $_POST['ip_publico'] ?? ''; ?>"></div>
+                <div class="form-group"><label>Porta Pública *</label><input type="number" name="porta" id="porta" placeholder="Ex: 51478" required value="<?php echo $_POST['porta'] ?? ''; ?>"></div>
             </div>
             <div class="row">
-                <div class="form-group"><label>Data Início</label><input type="date" name="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>"></div>
-                <div class="form-group"><label>Data Fim</label><input type="date" name="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>"></div>
+                <div class="form-group"><label>Data Início</label><input type="date" name="data_inicio" id="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>"></div>
+                <div class="form-group"><label>Data Fim</label><input type="date" name="data_fim" id="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>"></div>
             </div>
             <div class="row">
-                <div class="form-group"><label>Hora Início</label><input type="time" name="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>"></div>
-                <div class="form-group"><label>Hora Fim</label><input type="time" name="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>"></div>
+                <div class="form-group"><label>Hora Início</label><input type="time" name="hora_inicio" id="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>"></div>
+                <div class="form-group"><label>Hora Fim</label><input type="time" name="hora_fim" id="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>"></div>
             </div>
             <div class="row">
-                <div class="form-group"><label>Motivo</label><input type="text" name="motivo" value="Consulta LGPD"></div>
-                <div class="form-group"><label>Protocolo</label><input type="text" name="protocolo" placeholder="Número do processo"></div>
+                <div class="form-group"><label>Motivo</label><input type="text" name="motivo" id="motivo" value="Consulta LGPD"></div>
+                <div class="form-group"><label>Protocolo</label><input type="text" name="protocolo" id="protocolo" placeholder="Número do processo"></div>
             </div>
             <button type="submit" class="btn">🔍 Consultar</button>
-            <button type="reset" class="btn btn-danger" style="margin-left:10px;">↺ Limpar</button>
+            <button type="button" class="btn btn-danger" onclick="limparFormulario()" style="margin-left:10px;">↺ Limpar</button>
         </form>
         <?php if ($resultados && $total > 0): ?>
         <div class="results">
@@ -1346,6 +1346,32 @@ include 'menu.php';
         </div>
         <?php endif; ?>
     </div>
+    <script>
+    function limparFormulario() {
+        // Limpar todos os campos
+        document.getElementById('ip_publico').value = '';
+        document.getElementById('porta').value = '';
+        document.getElementById('protocolo').value = '';
+        
+        // Restaurar valores padrão
+        var hoje = new Date().toISOString().split('T')[0];
+        document.getElementById('data_inicio').value = hoje;
+        document.getElementById('data_fim').value = hoje;
+        document.getElementById('hora_inicio').value = '00:00';
+        document.getElementById('hora_fim').value = '23:59';
+        document.getElementById('motivo').value = 'Consulta LGPD';
+        
+        // Remover mensagens e resultados
+        var alerts = document.querySelectorAll('.alert');
+        alerts.forEach(function(el) { el.style.display = 'none'; });
+        
+        var clientInfo = document.querySelector('.client-info');
+        if (clientInfo) { clientInfo.style.display = 'none'; }
+        
+        var results = document.querySelector('.results');
+        if (results) { results.style.display = 'none'; }
+    }
+    </script>
 </body>
 </html>
 CONSULTAR_PHP
