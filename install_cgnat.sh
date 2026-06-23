@@ -1,9 +1,10 @@
 #!/bin/bash
 # ============================================================
-# SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
+# SCRIPT DE INSTALAÇÃO - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 2.0 - COMPLETO (TODAS AS CORREÇÕES)
+# Versão: 1.0 - Debian 12 x64
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
+# Router: Cisco ASR-1001X
 # ============================================================
 
 set -e
@@ -70,7 +71,7 @@ echo "  ✅ Integração com MK-AUTH (usando sis_cliente e sis_adicional)"
 echo ""
 echo "🌐 Timezone configurado para: $TIMEZONE"
 echo ""
-read -p "Deseja continuar? (s/N): " -n 1 -r
+read -p "Deseja continuar? (S/N): " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Ss]$ ]]; then
     print_info "Instalação cancelada."
