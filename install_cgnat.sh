@@ -2,23 +2,19 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.0
+# Versão: 1.1
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
 
-set -e  # Para a execução em caso de erro
+set -e
 
-# Cores para output
+# Cores
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# ============================================================
-# FUNÇÕES AUXILIARES
-# ============================================================
+NC='\033[0m'
 
 print_header() {
     echo ""
@@ -28,21 +24,10 @@ print_header() {
     echo ""
 }
 
-print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
-}
-
-print_error() {
-    echo -e "${RED}❌ $1${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
-}
-
-print_info() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
-}
+print_success() { echo -e "${GREEN}✅ $1${NC}"; }
+print_error() { echo -e "${RED}❌ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
+print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -55,25 +40,18 @@ check_root() {
 # CONFIGURAÇÕES - ALTERADAS PARA JOÃO PESSOA
 # ============================================================
 
-# Credenciais do sistema
 DB_PASS_CGNAT="WBT@00000000"
 DB_PASS_PARSER="WBT@0000000"
 WEB_ADMIN_PASS="admin123"
 WEB_JURIDICO_PASS="juridico123"
 WEB_OPERADOR_PASS="operador123"
-
-# Configurações MK-AUTH (ALTERADAS)
 MK_AUTH_IP="172.31.254.2"
 MK_AUTH_USER="root"
 MK_AUTH_PASS="00000000@MLSS"
 MK_AUTH_DB_PASS="vertrigo"
-
-# Configurações Cisco (ALTERADAS)
 CISCO_IP="192.168.243.250"
 CISCO_USER="mkauth"
 CISCO_PASS="WBT@0000000"
-
-# Timezone (ALTERADO PARA JOÃO PESSOA)
 TIMEZONE="America/Recife"
 
 # ============================================================
@@ -129,9 +107,11 @@ apt upgrade -y
 print_success "Sistema atualizado"
 
 # ============================================================
-# 4. INSTALAR PACOTES
+# 4. INSTALAR PACOTES (CORRIGIDO)
 # ============================================================
 print_header "4. INSTALANDO PACOTES"
+
+# Lista de pacotes (mysql-client removido)
 apt install -y \
     wget curl vim htop net-tools \
     build-essential \
@@ -140,7 +120,7 @@ apt install -y \
     rsyslog logrotate \
     apache2 php php-pgsql php-curl php-json php-mbstring \
     sshpass \
-    mysql-client \
+    default-mysql-client \
     tcpdump \
     postgresql-15-mysql-fdw \
     git \
@@ -171,10 +151,8 @@ print_success "Diretórios criados"
 # ============================================================
 print_header "6. CONFIGURANDO POSTGRESQL"
 
-# Parar PostgreSQL para ajustar configurações
 systemctl stop postgresql
 
-# Configurar postgresql.conf
 cat > /etc/postgresql/15/main/postgresql.conf << 'PG_CONF'
 data_directory = '/var/lib/postgresql/15/main'
 hba_file = '/etc/postgresql/15/main/pg_hba.conf'
@@ -204,7 +182,6 @@ lc_time = 'en_US.UTF-8'
 default_text_search_config = 'pg_catalog.english'
 PG_CONF
 
-# Configurar pg_hba.conf
 cat > /etc/postgresql/15/main/pg_hba.conf << 'PG_HBA'
 local   all             postgres                                peer
 local   all             all                                     md5
@@ -212,10 +189,8 @@ host    all             all             127.0.0.1/32            md5
 host    all             all             ::1/128                 md5
 PG_HBA
 
-# Iniciar PostgreSQL
 systemctl start postgresql
 
-# Criar usuários e banco
 sudo -u postgres psql << 'PG_SQL'
 CREATE USER cgnat_parser WITH PASSWORD 'WBT@0000000';
 CREATE USER cgnat_admin WITH PASSWORD 'WBT@00000000';
@@ -228,7 +203,7 @@ PG_SQL
 print_success "PostgreSQL configurado"
 
 # ============================================================
-# 7. CRIAR TABELAS DO BANCO
+# 7. CRIAR TABELAS
 # ============================================================
 print_header "7. CRIANDO TABELAS"
 
@@ -298,7 +273,7 @@ CREATE TABLE lgpd_alertas (
     resolvido_em TIMESTAMP
 );
 
--- Tabela de sessões PPPoE (backup)
+-- Tabela de sessões PPPoE
 CREATE TABLE pppoe_sessoes (
     id BIGSERIAL PRIMARY KEY,
     login VARCHAR(100) NOT NULL,
@@ -323,14 +298,14 @@ CREATE INDEX idx_clientes_login ON clientes(login);
 CREATE INDEX idx_lgpd_data ON lgpd_audit(data_consulta);
 CREATE INDEX idx_usuarios_usuario ON usuarios(usuario);
 
--- Inserir usuários padrão
+-- Usuários padrão
 INSERT INTO usuarios (usuario, senha_hash, nome_completo, perfil) VALUES
 ('admin', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Administrador', 'admin'),
 ('juridico', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Departamento Jurídico', 'juridico'),
 ('operador', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Operador', 'operador')
 ON CONFLICT (usuario) DO NOTHING;
 
--- Criar partição atual
+-- Partição atual
 DO $$
 DECLARE
     mes_atual DATE;
@@ -387,11 +362,10 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 9. CRIAR ARQUIVOS PHP
+# 9. ARQUIVO CONFIG.PHP
 # ============================================================
 print_header "9. CRIANDO ARQUIVOS PHP"
 
-# Criar config.php
 cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 <?php
 define('DB_HOST', 'localhost');
@@ -412,7 +386,7 @@ CONFIG_PHP
 print_success "Arquivos PHP criados"
 
 # ============================================================
-# 10. CONFIGURAR CRONJOBS
+# 10. CRONJOBS
 # ============================================================
 print_header "10. CONFIGURANDO CRONJOBS"
 
@@ -433,11 +407,10 @@ rm /tmp/crontab_cgnat
 print_success "Cronjobs configurados"
 
 # ============================================================
-# 11. CRIAR SCRIPTS ÚTEIS
+# 11. SCRIPTS ÚTEIS
 # ============================================================
 print_header "11. CRIANDO SCRIPTS ÚTEIS"
 
-# Script de backup
 cat > /usr/local/bin/backup_cgnat.sh << 'BACKUP'
 #!/bin/bash
 BACKUP_DIR="/backup/cgnat"
@@ -449,7 +422,6 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
-# Script de monitoramento de disco
 cat > /usr/local/bin/monitor_disco.sh << 'MONITOR'
 #!/bin/bash
 echo "=== MONITORAMENTO DE DISCO CGNAT ==="
@@ -485,11 +457,10 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
 RSYSLOG
 
 systemctl restart rsyslog
-
 print_success "Rsyslog configurado"
 
 # ============================================================
-# 13. AJUSTAR PERMISSÕES FINAIS
+# 13. PERMISSÕES FINAIS
 # ============================================================
 print_header "13. AJUSTANDO PERMISSÕES FINAIS"
 
