@@ -1398,14 +1398,15 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
-# Script de Sincronização MK-AUTH
+# Script de Sincronização MK-AUTH (com variáveis expandidas)
 cat > /usr/local/bin/sync_mkauth.sh << "SYNC"
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
+# Gerado pelo instalador - $(date)
 
-echo "$(date): Iniciando sincronização com MK-AUTH..."
+echo "\$(date): Iniciando sincronização com MK-AUTH..."
 
-# VALORES FIXOS (substituídos durante a instalação)
+# Usando as variáveis do script principal (expandidas na criação)
 MK_AUTH_IP="${MK_AUTH_IP}"
 MK_AUTH_USER="${MK_AUTH_USER}"
 MK_AUTH_PASS="${MK_AUTH_PASS}"
@@ -1413,8 +1414,10 @@ DB_USER="root"
 DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
 
+# Criar arquivo temporário
 TMP_FILE="/tmp/radacct_export_\$\$.csv"
 
+# Buscar dados via SSH
 sshpass -p "\${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \${MK_AUTH_USER}@\${MK_AUTH_IP} \
 "mysql -u \${DB_USER} -p\${DB_PASS} -B -N -e '
 SELECT 
@@ -1468,10 +1471,12 @@ SQL
     rm -f "\${TMP_FILE}"
 else
     echo "ERRO: Não foi possível exportar dados do MK-AUTH"
+    echo "Verifique a conectividade com \${MK_AUTH_IP}"
 fi
 
-echo "$(date): Sincronização concluída."
+echo "\$(date): Sincronização concluída."
 SYNC
+chmod +x /usr/local/bin/sync_mkauth.sh
 
 # Script de Monitoramento de Disco
 cat > /usr/local/bin/monitor_disco.sh << 'MONITOR'
