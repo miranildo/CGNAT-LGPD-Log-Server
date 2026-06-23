@@ -943,7 +943,7 @@ include 'menu.php';
 </html>
 DASHBOARD_PHP
 
-# 10.9 CONSULTAR.PHP (CORRIGIDO - usa login do log)
+# 10.9 CONSULTAR.PHP
 cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 <?php
 require_once 'auth.php';
