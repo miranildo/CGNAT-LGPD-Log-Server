@@ -2,8 +2,9 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 2.3 - COMPLETO (TODOS OS ARQUIVOS EMBUTIDOS)
+# Versão: 3.0 - DEFINITIVO (TODAS AS CORREÇÕES)
 # Autor: Sistema CGNAT - João Pessoa/PB
+# Data: $(date +%Y%m%d)
 # ============================================================
 
 set -e
@@ -344,13 +345,11 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 10. CRIAR TODOS OS ARQUIVOS PHP DA INTERFACE WEB
+# 10. CRIAR TODOS OS ARQUIVOS PHP
 # ============================================================
 print_header "10. CRIANDO ARQUIVOS PHP"
 
-# ============================================================
 # 10.1 CONFIG.PHP
-# ============================================================
 cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 <?php
 define('DB_HOST', 'localhost');
@@ -368,9 +367,7 @@ if (session_status() == PHP_SESSION_NONE) {
 ?>
 CONFIG_PHP
 
-# ============================================================
 # 10.2 FUNCTIONS.PHP
-# ============================================================
 cat > /var/www/html/cgnat/functions.php << 'FUNCTIONS_PHP'
 <?php
 require_once 'config.php';
@@ -431,9 +428,7 @@ function registrarAuditoria($usuario, $ip_publico, $porta, $motivo, $protocolo) 
 ?>
 FUNCTIONS_PHP
 
-# ============================================================
 # 10.3 AUTH.PHP
-# ============================================================
 cat > /var/www/html/cgnat/auth.php << 'AUTH_PHP'
 <?php
 require_once 'config.php';
@@ -489,16 +484,14 @@ function verificarPermissao($perfil_necessario = null) {
     }
     
     if ($perfil_necessario && $_SESSION['perfil'] != 'admin' && $_SESSION['perfil'] != $perfil_necessario) {
-        header('Location: index.php?erro=permissao');
+        header('Location: dashboard.php?erro=permissao');
         exit;
     }
 }
 ?>
 AUTH_PHP
 
-# ============================================================
 # 10.4 LOGIN.PHP
-# ============================================================
 cat > /var/www/html/cgnat/login.php << 'LOGIN_PHP'
 <?php
 if (session_status() == PHP_SESSION_NONE) {
@@ -638,9 +631,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </html>
 LOGIN_PHP
 
-# ============================================================
 # 10.5 LOGOUT.PHP
-# ============================================================
 cat > /var/www/html/cgnat/logout.php << 'LOGOUT_PHP'
 <?php
 session_start();
@@ -650,9 +641,7 @@ exit;
 ?>
 LOGOUT_PHP
 
-# ============================================================
 # 10.6 MENU.PHP
-# ============================================================
 cat > /var/www/html/cgnat/menu.php << 'MENU_PHP'
 <?php
 $current_page = basename($_SERVER['PHP_SELF']);
@@ -714,33 +703,45 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 </div>
 MENU_PHP
 
-# ============================================================
 # 10.7 DASHBOARD.PHP
-# ============================================================
 cat > /var/www/html/cgnat/dashboard.php << 'DASHBOARD_PHP'
 <?php
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
+
 $db = getDBConnection();
+
 $stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE DATE(data_consulta) = CURRENT_DATE");
 $hoje = $stmt->fetchColumn();
+
 $stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE data_consulta > NOW() - INTERVAL '7 days'");
 $semana = $stmt->fetchColumn();
+
 $stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE data_consulta > NOW() - INTERVAL '30 days'");
 $mes = $stmt->fetchColumn();
+
 $stmt = $db->query("SELECT COUNT(*) FROM cgnat_logs");
 $total_logs = $stmt->fetchColumn();
+
 $stmt = $db->query("SELECT COUNT(*) FROM clientes");
 $total_clientes = $stmt->fetchColumn();
-$stmt = $db->query("SELECT usuario, ip_consultado, porta_consultada, data_consulta FROM lgpd_audit ORDER BY data_consulta DESC LIMIT 10");
+
+$stmt = $db->query("
+    SELECT usuario, ip_consultado, porta_consultada, data_consulta 
+    FROM lgpd_audit 
+    ORDER BY data_consulta DESC 
+    LIMIT 10
+");
 $ultimas = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
 include 'menu.php';
 ?>
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard CGNAT</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -754,7 +755,11 @@ include 'menu.php';
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
         th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
         td { padding: 10px; border-bottom: 1px solid #eee; }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr 1fr; } }
@@ -762,13 +767,12 @@ include 'menu.php';
 </head>
 <body>
     <div class="container">
-        <?php include 'menu.php'; ?>
         <h1>📊 Dashboard CGNAT</h1>
         <div class="row">
             <div class="card card-verde"><div class="numero"><?php echo $hoje; ?></div><div class="label">Consultas Hoje</div></div>
             <div class="card card-amarelo"><div class="numero"><?php echo $semana; ?></div><div class="label">Consultas (7 dias)</div></div>
             <div class="card"><div class="numero"><?php echo $mes; ?></div><div class="label">Consultas (30 dias)</div></div>
-            <div class="card card-vermelho"><div class="numero"><?php echo number_format($total_logs); ?></div><div class="label">Total de Logs CGNAT</div></div>
+            <div class="card card-vermelho"><div class="numero"><?php echo number_format($total_logs); ?></div><div class="label">Total Logs CGNAT</div></div>
         </div>
         <div style="margin-top:30px;">
             <h3>📋 Últimas Consultas</h3>
@@ -791,15 +795,18 @@ include 'menu.php';
 </html>
 DASHBOARD_PHP
 
-# ============================================================
 # 10.8 CONSULTAR.PHP
-# ============================================================
 cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 <?php
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
-$resultados = null; $total = 0; $mensagem = ''; $cliente_nome = '';
+
+$resultados = null;
+$total = 0;
+$mensagem = '';
+$cliente_nome = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip_publico = $_POST['ip_publico'] ?? '';
     $porta = $_POST['porta'] ?? '';
@@ -807,20 +814,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data_fim = $_POST['data_fim'] . ' ' . ($_POST['hora_fim'] ?? '23:59:59');
     $motivo = $_POST['motivo'] ?? 'Consulta LGPD';
     $protocolo = $_POST['protocolo'] ?? '';
+    
     if ($ip_publico && $porta) {
         try {
             $db = getDBConnection();
             $stmt = $db->prepare("INSERT INTO lgpd_audit (usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial) VALUES (?, ?, ?, ?, ?)");
             $stmt->execute([$_SESSION['usuario'], $ip_publico, $porta, $motivo, $protocolo]);
-            $stmt = $db->prepare("SELECT c.data_hora, c.acao, c.ip_privado, c.porta_privada, c.ip_publico, c.porta_publica, c.ip_destino, c.porta_destino, c.protocolo, cl.nome as cliente_nome, cl.login as cliente_login FROM cgnat_logs c LEFT JOIN clientes cl ON c.ip_privado = cl.ip_privado WHERE c.ip_publico = ?::inet AND c.porta_publica = ? AND c.data_hora BETWEEN ? AND ? ORDER BY c.data_hora DESC LIMIT 1000");
+            
+            $stmt = $db->prepare("
+                SELECT c.data_hora, c.acao, c.ip_privado, c.porta_privada, c.ip_publico, c.porta_publica, c.ip_destino, c.porta_destino, c.protocolo, cl.nome as cliente_nome, cl.login as cliente_login
+                FROM cgnat_logs c
+                LEFT JOIN clientes cl ON c.ip_privado = cl.ip_privado
+                WHERE c.ip_publico = ?::inet AND c.porta_publica = ? AND c.data_hora BETWEEN ? AND ?
+                ORDER BY c.data_hora DESC LIMIT 1000
+            ");
             $stmt->execute([$ip_publico, $porta, $data_inicio, $data_fim]);
             $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $total = count($resultados);
-            if ($total > 0 && !empty($resultados[0]['cliente_nome'])) { $cliente_nome = $resultados[0]['cliente_nome']; }
+            
+            if ($total > 0 && !empty($resultados[0]['cliente_nome'])) {
+                $cliente_nome = $resultados[0]['cliente_nome'];
+            }
             $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado.';
-        } catch (Exception $e) { $mensagem = "❌ Erro: " . $e->getMessage(); }
+        } catch (Exception $e) {
+            $mensagem = "❌ Erro: " . $e->getMessage();
+        }
     }
 }
+
 include 'menu.php';
 ?>
 <!DOCTYPE html>
@@ -860,12 +881,9 @@ include 'menu.php';
 </head>
 <body>
     <div class="container">
-        <?php include 'menu.php'; ?>
         <h1>🔍 Consulta CGNAT - LGPD</h1>
         <?php if ($mensagem): ?>
-        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false || strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'; ?>">
-            <?php echo $mensagem; ?>
-        </div>
+        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false || strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'; ?>"><?php echo $mensagem; ?></div>
         <?php endif; ?>
         <?php if ($cliente_nome): ?>
         <div class="client-info"><h3>👤 Cliente: <?php echo htmlspecialchars($cliente_nome); ?></h3></div>
@@ -920,28 +938,34 @@ include 'menu.php';
 </html>
 CONSULTAR_PHP
 
-# ============================================================
 # 10.9 RELATORIOS.PHP
-# ============================================================
 cat > /var/www/html/cgnat/relatorios.php << 'RELATORIOS_PHP'
 <?php
 require_once 'auth.php';
 verificarPermissao('juridico');
 require_once 'functions.php';
+
 $db = getDBConnection();
+
 $data_inicio = $_GET['data_inicio'] ?? date('Y-m-01');
 $data_fim = $_GET['data_fim'] ?? date('Y-m-d');
+
 try {
     $stmt = $db->prepare("SELECT COUNT(*) as total, COUNT(DISTINCT usuario) as usuarios, COUNT(DISTINCT ip_consultado) as ips_consultados, MIN(data_consulta) as primeira, MAX(data_consulta) as ultima FROM lgpd_audit WHERE DATE(data_consulta) BETWEEN ? AND ?");
     $stmt->execute([$data_inicio, $data_fim]);
     $resumo = $stmt->fetch(PDO::FETCH_ASSOC);
+    
     $stmt = $db->prepare("SELECT usuario, COUNT(*) as total, COUNT(DISTINCT ip_consultado) as ips FROM lgpd_audit WHERE DATE(data_consulta) BETWEEN ? AND ? GROUP BY usuario ORDER BY total DESC");
     $stmt->execute([$data_inicio, $data_fim]);
     $por_usuario = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
     $stmt = $db->prepare("SELECT usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial, data_consulta FROM lgpd_audit WHERE DATE(data_consulta) BETWEEN ? AND ? ORDER BY data_consulta DESC LIMIT 50");
     $stmt->execute([$data_inicio, $data_fim]);
     $ultimas = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (Exception $e) { $mensagem_erro = "Erro: " . $e->getMessage(); }
+} catch (Exception $e) {
+    $mensagem_erro = "Erro ao carregar dados: " . $e->getMessage();
+}
+
 include 'menu.php';
 ?>
 <!DOCTYPE html>
@@ -971,7 +995,6 @@ include 'menu.php';
 </head>
 <body>
     <div class="container">
-        <?php include 'menu.php'; ?>
         <h1>📊 Relatórios LGPD</h1>
         <?php if (isset($mensagem_erro)): ?><div class="alert">❌ <?php echo $mensagem_erro; ?></div><?php endif; ?>
         <form class="filtros" method="GET">
@@ -1012,16 +1035,16 @@ include 'menu.php';
 </html>
 RELATORIOS_PHP
 
-# ============================================================
 # 10.10 ADMIN.PHP
-# ============================================================
 cat > /var/www/html/cgnat/admin.php << 'ADMIN_PHP'
 <?php
 require_once 'auth.php';
 verificarPermissao('admin');
 require_once 'functions.php';
+
 $db = getDBConnection();
 $mensagem = ''; $mensagem_tipo = '';
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['acao'])) {
         try {
@@ -1051,6 +1074,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) { $mensagem = "❌ Erro: " . $e->getMessage(); $mensagem_tipo = 'danger'; }
     }
 }
+
 try {
     $stmt = $db->query("SELECT id, usuario, nome_completo, perfil, ativo, ultimo_acesso FROM usuarios ORDER BY id");
     $usuarios = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1058,6 +1082,7 @@ try {
     $stmt = $db->query("SELECT COUNT(*) FROM cgnat_logs"); $total_logs = $stmt->fetchColumn();
     $stmt = $db->query("SELECT COUNT(*) FROM clientes"); $total_clientes = $stmt->fetchColumn();
 } catch (Exception $e) { $mensagem = "❌ Erro: " . $e->getMessage(); $mensagem_tipo = 'danger'; $usuarios = []; $total_consultas = 0; $total_logs = 0; $total_clientes = 0; }
+
 include 'menu.php';
 ?>
 <!DOCTYPE html>
@@ -1107,7 +1132,6 @@ include 'menu.php';
 </head>
 <body>
     <div class="container">
-        <?php include 'menu.php'; ?>
         <h1>⚙️ Administração</h1>
         <?php if ($mensagem): ?>
         <div class="alert alert-<?php echo $mensagem_tipo == 'danger' ? 'danger' : 'success'; ?>"><?php echo $mensagem; ?></div>
@@ -1190,7 +1214,7 @@ include 'menu.php';
 </html>
 ADMIN_PHP
 
-print_success "TODOS os arquivos PHP criados (10 arquivos)"
+print_success "TODOS os 10 arquivos PHP criados com sucesso!"
 
 # ============================================================
 # 11. CONFIGURAR CRONJOBS
