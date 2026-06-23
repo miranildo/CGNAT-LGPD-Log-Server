@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.5
+# Versão: 1.6
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
@@ -143,14 +143,19 @@ chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 print_success "Diretórios criados"
 
 # ============================================================
-# 6. INICIAR E CONFIGURAR POSTGRESQL
+# 6. CONFIGURAR POSTGRESQL
 # ============================================================
 print_header "6. CONFIGURANDO POSTGRESQL"
 
-# Parar e remover locks
+# Parar PostgreSQL
 systemctl stop postgresql 2>/dev/null || true
-rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
-rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
+
+# Verificar se o cluster existe, se não, criar
+if [ ! -d "/var/lib/postgresql/15/main" ]; then
+    print_info "Criando cluster PostgreSQL..."
+    pg_createcluster 15 main --start
+    sleep 2
+fi
 
 # Iniciar PostgreSQL
 systemctl start postgresql
@@ -158,20 +163,29 @@ sleep 3
 
 # Verificar se está rodando
 if ! systemctl is-active --quiet postgresql; then
-    print_error "PostgreSQL não iniciou. Tentando reiniciar..."
-    systemctl restart postgresql
-    sleep 5
+    print_warning "Tentando iniciar o cluster manualmente..."
+    pg_ctlcluster 15 main start
+    sleep 3
 fi
 
-# Se ainda não rodar, reinstalar
+# Verificar novamente
 if ! systemctl is-active --quiet postgresql; then
-    print_warning "Reinstalando PostgreSQL..."
-    apt install --reinstall -y postgresql postgresql-contrib
+    print_warning "Reconfigurando PostgreSQL..."
+    pg_dropcluster 15 main --stop 2>/dev/null || true
+    pg_createcluster 15 main --start
+    sleep 3
     systemctl start postgresql
     sleep 3
 fi
 
-print_success "PostgreSQL rodando"
+# Verificar se finalmente está rodando
+if systemctl is-active --quiet postgresql; then
+    print_success "PostgreSQL rodando"
+else
+    print_error "Não foi possível iniciar o PostgreSQL"
+    journalctl -u postgresql -n 20 --no-pager
+    exit 1
+fi
 
 # Configurar postgresql.conf
 cat > /etc/postgresql/15/main/postgresql.conf << 'PG_CONF'
