@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 2.0 - DEFINITIVA
+# Versão: 2.1 - CORRIGIDO (CRIA TODOS OS ARQUIVOS PHP)
 # Autor: Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
@@ -143,41 +143,28 @@ chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 print_success "Diretórios criados"
 
 # ============================================================
-# 6. CONFIGURAR POSTGRESQL (METODO TESTADO E APROVADO)
+# 6. CONFIGURAR POSTGRESQL
 # ============================================================
 print_header "6. CONFIGURANDO POSTGRESQL"
 
-# Parar tudo
 systemctl stop postgresql 2>/dev/null || true
 systemctl stop postgresql@15-main 2>/dev/null || true
 
-# Remover cluster antigo se existir
 pg_dropcluster 15 main --stop 2>/dev/null || true
-
-# Remover diretório antigo
 rm -rf /var/lib/postgresql/15/main 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
 
-# Criar novo cluster
-print_info "Criando cluster PostgreSQL..."
 pg_createcluster 15 main --start -u postgres
-
-# Iniciar PostgreSQL
 systemctl start postgresql
 systemctl enable postgresql
-
-# Aguardar iniciar
 sleep 3
 
-# Verificar se está rodando
 if ! systemctl is-active --quiet postgresql; then
-    print_error "PostgreSQL não iniciou. Verificando..."
     pg_ctlcluster 15 main start
     sleep 3
 fi
 
-# Verificar novamente
 if ! systemctl is-active --quiet postgresql; then
     print_error "Não foi possível iniciar o PostgreSQL"
     pg_lsclusters
@@ -187,7 +174,6 @@ fi
 
 print_success "PostgreSQL rodando"
 
-# Testar conexão
 if ! sudo -u postgres psql -c "SELECT 1" 2>/dev/null; then
     print_error "PostgreSQL não responde"
     exit 1
@@ -359,12 +345,13 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 10. ARQUIVO CONFIG.PHP
+# 10. CRIAR TODOS OS ARQUIVOS PHP DA INTERFACE WEB
 # ============================================================
 print_header "10. CRIANDO ARQUIVOS PHP"
 
-mkdir -p /var/www/html/cgnat
-
+# ============================================================
+# 10.1 CONFIG.PHP
+# ============================================================
 cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 <?php
 define('DB_HOST', 'localhost');
@@ -382,10 +369,763 @@ if (session_status() == PHP_SESSION_NONE) {
 ?>
 CONFIG_PHP
 
+# ============================================================
+# 10.2 FUNCTIONS.PHP
+# ============================================================
+cat > /var/www/html/cgnat/functions.php << 'FUNCTIONS_PHP'
+<?php
+require_once 'config.php';
+
+function getDBConnection() {
+    try {
+        $pdo = new PDO(
+            "pgsql:host=" . DB_HOST . ";dbname=" . DB_NAME,
+            DB_USER,
+            DB_PASS
+        );
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        return $pdo;
+    } catch (PDOException $e) {
+        die("Erro de conexão PostgreSQL: " . $e->getMessage());
+    }
+}
+
+function getMKAUTHConnection() {
+    try {
+        $pdo = new PDO(
+            "mysql:host=" . MK_AUTH_HOST . ";dbname=" . MK_AUTH_DB,
+            MK_AUTH_USER,
+            MK_AUTH_PASS
+        );
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        return $pdo;
+    } catch (PDOException $e) {
+        return null;
+    }
+}
+
+function registrarAuditoria($usuario, $ip_publico, $porta, $motivo, $protocolo) {
+    try {
+        $db = getDBConnection();
+        $stmt = $db->prepare("
+            INSERT INTO lgpd_audit (
+                usuario, ip_consultado, porta_consultada, 
+                motivo, protocolo_judicial, data_consulta,
+                ip_origem_consulta, user_agent
+            ) VALUES (?, ?, ?, ?, ?, NOW(), ?, ?)
+        ");
+        $stmt->execute([
+            $usuario,
+            $ip_publico,
+            $porta,
+            $motivo,
+            $protocolo,
+            $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            $_SERVER['HTTP_USER_AGENT'] ?? 'unknown'
+        ]);
+        return true;
+    } catch (Exception $e) {
+        error_log("Erro ao registrar auditoria: " . $e->getMessage());
+        return false;
+    }
+}
+?>
+FUNCTIONS_PHP
+
+# ============================================================
+# 10.3 AUTH.PHP
+# ============================================================
+cat > /var/www/html/cgnat/auth.php << 'AUTH_PHP'
+<?php
+require_once 'config.php';
+require_once 'functions.php';
+
+function verificarLogin($usuario, $senha) {
+    try {
+        $db = getDBConnection();
+        $stmt = $db->prepare("
+            SELECT id, usuario, senha_hash, nome_completo, perfil, ativo
+            FROM usuarios
+            WHERE usuario = ? AND ativo = true
+        ");
+        $stmt->execute([$usuario]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$user) {
+            return false;
+        }
+        
+        if (password_verify($senha, $user['senha_hash'])) {
+            if (session_status() == PHP_SESSION_NONE) {
+                session_start();
+            }
+            
+            $_SESSION['user_id'] = $user['id'];
+            $_SESSION['usuario'] = $user['usuario'];
+            $_SESSION['nome_completo'] = $user['nome_completo'] ?? $user['usuario'];
+            $_SESSION['perfil'] = $user['perfil'];
+            $_SESSION['logado'] = true;
+            
+            $stmt = $db->prepare("UPDATE usuarios SET ultimo_acesso = NOW() WHERE id = ?");
+            $stmt->execute([$user['id']]);
+            
+            return true;
+        }
+        
+        return false;
+    } catch (Exception $e) {
+        error_log("Erro no login: " . $e->getMessage());
+        return false;
+    }
+}
+
+function verificarPermissao($perfil_necessario = null) {
+    if (session_status() == PHP_SESSION_NONE) {
+        session_start();
+    }
+    
+    if (!isset($_SESSION['usuario']) || !isset($_SESSION['logado'])) {
+        header('Location: login.php');
+        exit;
+    }
+    
+    if ($perfil_necessario && $_SESSION['perfil'] != 'admin' && $_SESSION['perfil'] != $perfil_necessario) {
+        header('Location: index.php?erro=permissao');
+        exit;
+    }
+}
+?>
+AUTH_PHP
+
+# ============================================================
+# 10.4 LOGIN.PHP
+# ============================================================
+cat > /var/www/html/cgnat/login.php << 'LOGIN_PHP'
+<?php
+if (session_status() == PHP_SESSION_NONE) {
+    session_start();
+}
+
+if (isset($_SESSION['usuario']) && isset($_SESSION['logado'])) {
+    header('Location: index.php');
+    exit;
+}
+
+require_once 'config.php';
+require_once 'functions.php';
+require_once 'auth.php';
+
+$erro = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $usuario = $_POST['usuario'] ?? '';
+    $senha = $_POST['senha'] ?? '';
+    
+    if (empty($usuario) || empty($senha)) {
+        $erro = '❌ Preencha todos os campos.';
+    } else {
+        if (verificarLogin($usuario, $senha)) {
+            header('Location: index.php');
+            exit;
+        } else {
+            $erro = '❌ Usuário ou senha inválidos.';
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - CGNAT LGPD</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-box {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        h1 small {
+            display: block;
+            font-size: 14px;
+            font-weight: normal;
+            color: #888;
+            margin-top: 5px;
+        }
+        .form-group { margin-bottom: 20px; }
+        label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn:hover { transform: scale(1.02); }
+        .alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .alert-danger {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .info {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #888;
+        }
+        .info span { 
+            display: inline-block;
+            background: #f0f0f0;
+            padding: 2px 10px;
+            border-radius: 4px;
+            margin: 2px;
+            color: #667eea;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>
+            🔐 CGNAT LGPD
+            <small>Sistema de Consulta</small>
+        </h1>
+        
+        <?php if ($erro): ?>
+        <div class="alert alert-danger">
+            <?php echo $erro; ?>
+        </div>
+        <?php endif; ?>
+        
+        <form method="POST">
+            <div class="form-group">
+                <label>Usuário</label>
+                <input type="text" name="usuario" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Senha</label>
+                <input type="password" name="senha" required>
+            </div>
+            <button type="submit" class="btn">Entrar</button>
+        </form>
+        
+        <div class="info">
+            Credenciais padrão:
+            <span>admin</span>
+            <span>juridico</span>
+            <span>operador</span>
+        </div>
+    </div>
+</body>
+</html>
+LOGIN_PHP
+
+# ============================================================
+# 10.5 INDEX.PHP
+# ============================================================
+cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
+<?php
+require_once 'auth.php';
+verificarPermissao();
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard CGNAT</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; border-bottom: 3px solid #667eea; padding-bottom: 15px; }
+        .info { background: #e7f3ff; padding: 20px; border-radius: 8px; border-left: 4px solid #667eea; margin: 20px 0; }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-danger { background: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>✅ Dashboard CGNAT LGPD</h1>
+        
+        <div class="info">
+            <h3>👤 Bem-vindo, <?php echo htmlspecialchars($_SESSION['nome_completo']); ?>!</h3>
+            <p><strong>Perfil:</strong> <?php echo htmlspecialchars($_SESSION['perfil']); ?></p>
+            <p><strong>Usuário:</strong> <?php echo htmlspecialchars($_SESSION['usuario']); ?></p>
+        </div>
+        
+        <p>
+            <a href="consultar.php" class="btn">🔍 Consultar CGNAT</a>
+            <a href="logout.php" class="btn btn-danger" style="margin-left: 10px;">🚪 Sair</a>
+        </p>
+    </div>
+</body>
+</html>
+INDEX_PHP
+
+# ============================================================
+# 10.6 LOGOUT.PHP
+# ============================================================
+cat > /var/www/html/cgnat/logout.php << 'LOGOUT_PHP'
+<?php
+session_start();
+session_destroy();
+header('Location: login.php');
+exit;
+?>
+LOGOUT_PHP
+
+# ============================================================
+# 10.7 CONSULTAR.PHP
+# ============================================================
+cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
+<?php
+require_once 'auth.php';
+verificarPermissao();
+
+require_once 'functions.php';
+
+$resultados = null;
+$total = 0;
+$mensagem = '';
+$cliente_nome = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $ip_publico = $_POST['ip_publico'] ?? '';
+    $porta = $_POST['porta'] ?? '';
+    $data_inicio = $_POST['data_inicio'] . ' ' . ($_POST['hora_inicio'] ?? '00:00:00');
+    $data_fim = $_POST['data_fim'] . ' ' . ($_POST['hora_fim'] ?? '23:59:59');
+    $motivo = $_POST['motivo'] ?? 'Consulta LGPD';
+    $protocolo = $_POST['protocolo'] ?? '';
+    
+    if ($ip_publico && $porta) {
+        try {
+            $db = getDBConnection();
+            
+            $stmt = $db->prepare("
+                INSERT INTO lgpd_audit (usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([$_SESSION['usuario'], $ip_publico, $porta, $motivo, $protocolo]);
+            
+            $stmt = $db->prepare("
+                SELECT 
+                    c.data_hora,
+                    c.acao,
+                    c.ip_privado,
+                    c.porta_privada,
+                    c.ip_publico,
+                    c.porta_publica,
+                    c.ip_destino,
+                    c.porta_destino,
+                    c.protocolo,
+                    cl.nome as cliente_nome,
+                    cl.login as cliente_login
+                FROM cgnat_logs c
+                LEFT JOIN clientes cl ON c.ip_privado = cl.ip_privado
+                WHERE c.ip_publico = ?::inet
+                AND c.porta_publica = ?
+                AND c.data_hora BETWEEN ? AND ?
+                ORDER BY c.data_hora DESC
+                LIMIT 1000
+            ");
+            $stmt->execute([$ip_publico, $porta, $data_inicio, $data_fim]);
+            $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $total = count($resultados);
+            
+            if ($total > 0 && !empty($resultados[0]['cliente_nome'])) {
+                $cliente_nome = $resultados[0]['cliente_nome'];
+            }
+            
+            $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado.';
+        } catch (Exception $e) {
+            $mensagem = "❌ Erro: " . $e->getMessage();
+        }
+    }
+}
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta CGNAT</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; border-bottom: 3px solid #667eea; padding-bottom: 15px; margin-bottom: 25px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        input:focus { border-color: #667eea; outline: none; }
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
+        td { padding: 10px; border-bottom: 1px solid #eee; }
+        tr:hover { background: #f8f9fa; }
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-success { background: #d4edda; color: #155724; }
+        .badge-danger { background: #f8d7da; color: #721c24; }
+        .badge-info { background: #cce5ff; color: #004085; }
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .client-info {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+        }
+        .client-info h3 { color: #004085; margin: 0; }
+        @media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Consulta CGNAT - LGPD</h1>
+        
+        <?php if ($mensagem): ?>
+        <div class="alert alert-<?php echo strpos($mensagem, 'Nenhum') !== false || strpos($mensagem, 'Erro') !== false ? 'danger' : 'success'; ?>">
+            <?php echo $mensagem; ?>
+        </div>
+        <?php endif; ?>
+        
+        <?php if ($cliente_nome): ?>
+        <div class="client-info">
+            <h3>👤 Cliente Identificado: <?php echo htmlspecialchars($cliente_nome); ?></h3>
+        </div>
+        <?php endif; ?>
+        
+        <form method="POST">
+            <div class="row">
+                <div class="form-group">
+                    <label>IP Público *</label>
+                    <input type="text" name="ip_publico" placeholder="Ex: 190.196.242.19" required 
+                           value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
+                </div>
+                <div class="form-group">
+                    <label>Porta Pública *</label>
+                    <input type="number" name="porta" placeholder="Ex: 51478" required
+                           value="<?php echo $_POST['porta'] ?? ''; ?>">
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="form-group">
+                    <label>Data Início</label>
+                    <input type="date" name="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>">
+                </div>
+                <div class="form-group">
+                    <label>Data Fim</label>
+                    <input type="date" name="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>">
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="form-group">
+                    <label>Hora Início</label>
+                    <input type="time" name="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>">
+                </div>
+                <div class="form-group">
+                    <label>Hora Fim</label>
+                    <input type="time" name="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>">
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="form-group">
+                    <label>Motivo da Consulta</label>
+                    <input type="text" name="motivo" value="Consulta LGPD">
+                </div>
+                <div class="form-group">
+                    <label>Protocolo Judicial</label>
+                    <input type="text" name="protocolo" placeholder="Número do processo">
+                </div>
+            </div>
+            
+            <button type="submit" class="btn">🔍 Consultar</button>
+            <button type="reset" class="btn btn-danger" style="margin-left: 10px;">↺ Limpar</button>
+        </form>
+        
+        <?php if ($resultados && $total > 0): ?>
+        <div class="results">
+            <h3>📋 Resultados (<?php echo $total; ?> registros)</h3>
+            <div style="overflow-x: auto; margin-top: 15px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Data/Hora</th>
+                            <th>Evento</th>
+                            <th>IP Cliente</th>
+                            <th>Porta Cliente</th>
+                            <th>IP Público</th>
+                            <th>Porta Pública</th>
+                            <th>Destino</th>
+                            <th>Protocolo</th>
+                            <th>Cliente</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($resultados as $row): ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars($row['data_hora']); ?></td>
+                            <td>
+                                <span class="badge <?php echo $row['acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
+                                    <?php echo $row['acao'] == 'Created' ? '📌 Criação' : '❌ Deleção'; ?>
+                                </span>
+                            </td>
+                            <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
+                            <td><?php echo htmlspecialchars($row['porta_privada'] ?? '-'); ?></td>
+                            <td><strong><?php echo htmlspecialchars($row['ip_publico']); ?></strong></td>
+                            <td><strong><?php echo htmlspecialchars($row['porta_publica']); ?></strong></td>
+                            <td><?php echo htmlspecialchars(($row['ip_destino'] ?? '') . ':' . ($row['porta_destino'] ?? '')); ?></td>
+                            <td><?php echo htmlspecialchars($row['protocolo'] ?? '-'); ?></td>
+                            <td>
+                                <?php if (!empty($row['cliente_nome'])): ?>
+                                    <span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
+                                <?php else: ?>
+                                    <span style="color: #999;">Não identificado</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+</body>
+</html>
+CONSULTAR_PHP
+
+# ============================================================
+# 10.8 DASHBOARD.PHP
+# ============================================================
+cat > /var/www/html/cgnat/dashboard.php << 'DASHBOARD_PHP'
+<?php
+require_once 'auth.php';
+verificarPermissao();
+
+require_once 'functions.php';
+
+$db = getDBConnection();
+
+$stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE DATE(data_consulta) = CURRENT_DATE");
+$hoje = $stmt->fetchColumn();
+
+$stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE data_consulta > NOW() - INTERVAL '7 days'");
+$semana = $stmt->fetchColumn();
+
+$stmt = $db->query("SELECT COUNT(*) FROM cgnat_logs");
+$total_logs = $stmt->fetchColumn();
+
+$stmt = $db->query("SELECT COUNT(*) FROM clientes");
+$total_clientes = $stmt->fetchColumn();
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard CGNAT</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; margin-bottom: 30px; }
+        .row { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+        .card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
+        .card .label { color: #888; margin-top: 5px; }
+        .card-verde .numero { color: #27ae60; }
+        .card-vermelho .numero { color: #e74c3c; }
+        .card-amarelo .numero { color: #f39c12; }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn:hover { opacity: 0.9; }
+        .btn-danger { background: #e74c3c; }
+        .menu { margin-bottom: 20px; }
+        .menu a { margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="menu">
+            <a href="dashboard.php" class="btn">📊 Dashboard</a>
+            <a href="consultar.php" class="btn">🔍 Consultar</a>
+            <a href="logout.php" class="btn btn-danger">🚪 Sair</a>
+        </div>
+        
+        <h1>📊 Dashboard CGNAT</h1>
+        
+        <div class="row">
+            <div class="card card-verde">
+                <div class="numero"><?php echo $hoje; ?></div>
+                <div class="label">Consultas Hoje</div>
+            </div>
+            <div class="card card-amarelo">
+                <div class="numero"><?php echo $semana; ?></div>
+                <div class="label">Consultas (7 dias)</div>
+            </div>
+            <div class="card card-vermelho">
+                <div class="numero"><?php echo number_format($total_logs); ?></div>
+                <div class="label">Total de Logs CGNAT</div>
+            </div>
+            <div class="card">
+                <div class="numero"><?php echo number_format($total_clientes); ?></div>
+                <div class="label">Clientes Cadastrados</div>
+            </div>
+        </div>
+        
+        <p style="text-align: center; color: #888; margin-top: 30px;">
+            Sistema CGNAT LGPD - João Pessoa/PB
+        </p>
+    </div>
+</body>
+</html>
+DASHBOARD_PHP
+
 print_success "Arquivos PHP criados"
 
 # ============================================================
-# 11. CRONJOBS
+# 11. CONFIGURAR CRONJOBS
 # ============================================================
 print_header "11. CONFIGURANDO CRONJOBS"
 
@@ -451,7 +1191,6 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
 }
 RSYSLOG
 
-# Criar pipe
 mkfifo /var/run/cgnat.pipe 2>/dev/null || true
 chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
 
