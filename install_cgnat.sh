@@ -1529,7 +1529,7 @@ rm /tmp/crontab_cgnat
 print_success "Cronjobs configurados"
 
 # ============================================================
-# 12. SCRIPTS ÚTEIS (COM sync_mkauth.sh CORRIGIDO)
+# 12. SCRIPTS ÚTEIS
 # ============================================================
 print_header "12. CRIANDO SCRIPTS ÚTEIS"
 
