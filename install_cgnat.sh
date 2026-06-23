@@ -344,13 +344,13 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 10. CRIAR O PARSER PYTHON (CORRIGIDO)
+# 10. CRIAR O PARSER PYTHON
 # ============================================================
 print_header "10. CRIANDO PARSER PYTHON"
 
 cat > /opt/cgnat/cgnat_parser.py << 'EOF'
 #!/usr/bin/env python3
-# /opt/cgnat/cgnat_parser.py
+# /opt/cgnat/cgnat_parser.py - CORRIGIDO (busca primeiro em clientes)
 
 import re
 import sys
@@ -378,7 +378,10 @@ class CGNATParserASR:
         self.stats = {
             'created': 0,
             'deleted': 0,
-            'errors': 0
+            'errors': 0,
+            'found_in_clientes': 0,
+            'found_in_pppoe': 0,
+            'not_found': 0
         }
         
     def parse_log_line(self, line: str) -> Optional[Dict]:
@@ -436,6 +439,21 @@ class CGNATParserASR:
     def get_pppoe_login(self, ip_privado: str, data_hora: datetime) -> Tuple[Optional[str], Optional[int]]:
         cursor = self.conn.cursor()
         try:
+            # PRIMEIRO: Buscar na tabela clientes (MK-AUTH)
+            cursor.execute("""
+                SELECT login
+                FROM clientes
+                WHERE ip_privado = %s::inet
+                LIMIT 1
+            """, (ip_privado,))
+            
+            result = cursor.fetchone()
+            if result:
+                self.stats['found_in_clientes'] += 1
+                logging.debug(f"Login encontrado em clientes: {result[0]} para IP {ip_privado}")
+                return result[0], None
+            
+            # SEGUNDO: Buscar na tabela pppoe_sessoes (fallback)
             cursor.execute("""
                 SELECT login, id
                 FROM pppoe_sessoes
@@ -448,10 +466,18 @@ class CGNATParserASR:
             
             result = cursor.fetchone()
             if result:
+                self.stats['found_in_pppoe'] += 1
+                logging.debug(f"Login encontrado em pppoe_sessoes: {result[0]} para IP {ip_privado}")
                 return result[0], result[1]
+            
+            # Não encontrou em lugar nenhum
+            self.stats['not_found'] += 1
+            if self.stats['not_found'] % 1000 == 0:
+                logging.warning(f"IP {ip_privado} não encontrado em nenhuma tabela ({self.stats['not_found']} total)")
             return None, None
+            
         except Exception as e:
-            logging.error(f"Erro ao buscar PPPoE: {e}")
+            logging.error(f"Erro ao buscar login para IP {ip_privado}: {e}")
             return None, None
         finally:
             cursor.close()
@@ -514,7 +540,7 @@ class CGNATParserASR:
             self.stats['errors'] += 1
     
     def run(self):
-        logging.info("Parser CGNAT iniciado")
+        logging.info("Parser CGNAT iniciado - CORRIGIDO (busca em clientes primeiro)")
         
         for line in sys.stdin:
             line = line.strip()
@@ -523,7 +549,10 @@ class CGNATParserASR:
             self.process_line(line)
             
             if (self.stats['created'] + self.stats['deleted']) % 1000 == 0:
-                logging.info(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, Errors={self.stats['errors']}")
+                logging.info(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, "
+                           f"Found in clientes={self.stats['found_in_clientes']}, "
+                           f"Found in pppoe={self.stats['found_in_pppoe']}, "
+                           f"Not found={self.stats['not_found']}, Errors={self.stats['errors']}")
 
 if __name__ == "__main__":
     parser = CGNATParserASR()
@@ -531,7 +560,7 @@ if __name__ == "__main__":
 EOF
 
 chmod +x /opt/cgnat/cgnat_parser.py
-print_success "Parser Python criado"
+print_success "Parser Python criado com correções"
 
 # ============================================================
 # 11. CRIAR SERVICE DO PARSER (CORRIGIDO)
