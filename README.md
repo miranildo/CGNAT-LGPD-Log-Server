@@ -2,7 +2,7 @@
 
 **Sistema completo de consulta CGNAT para atendimento à LGPD**
 
-> Versão otimizada para João Pessoa - PB
+> Versão otimizada WEBLINE TELECOM para João Pessoa - PB
 
 ## 📋 O que é?
 
