@@ -4,7 +4,6 @@
 # ============================================================
 # Versão: 1.0
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
-# Data: $(date +%Y%m%d)
 # ============================================================
 
 set -e
@@ -484,7 +483,7 @@ function verificarPermissao($perfil_necessario = null) {
     }
     
     if ($perfil_necessario && $_SESSION['perfil'] != 'admin' && $_SESSION['perfil'] != $perfil_necessario) {
-        header('Location: dashboard.php?erro=permissao');
+        header('Location: index.php?erro=permissao');
         exit;
     }
 }
@@ -499,7 +498,7 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 
 if (isset($_SESSION['usuario']) && isset($_SESSION['logado'])) {
-    header('Location: dashboard.php');
+    header('Location: index.php');
     exit;
 }
 
@@ -517,7 +516,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $erro = '❌ Preencha todos os campos.';
     } else {
         if (verificarLogin($usuario, $senha)) {
-            header('Location: dashboard.php');
+            header('Location: index.php');
             exit;
         } else {
             $erro = '❌ Usuário ou senha inválidos.';
@@ -687,9 +686,10 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 }
 </style>
 <div class="navbar-cgnat">
-    <a href="dashboard.php" class="logo">📡 CGNAT LGPD</a>
+    <a href="index.php" class="logo">📡 CGNAT LGPD</a>
     <div class="nav-links">
         <span class="user-info">👤 <?php echo htmlspecialchars($usuario_nome); ?></span>
+        <a href="index.php" class="<?php echo $current_page == 'index.php' ? 'active' : ''; ?>">🏠 Início</a>
         <a href="dashboard.php" class="<?php echo $current_page == 'dashboard.php' ? 'active' : ''; ?>">📊 Dashboard</a>
         <a href="consultar.php" class="<?php echo $current_page == 'consultar.php' ? 'active' : ''; ?>">🔍 Consultar</a>
         <?php if ($perfil == 'admin' || $perfil == 'juridico'): ?>
@@ -703,7 +703,155 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 </div>
 MENU_PHP
 
-# 10.7 DASHBOARD.PHP
+# 10.7 INDEX.PHP (PÁGINA INICIAL)
+cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
+<?php
+require_once 'auth.php';
+verificarPermissao();
+require_once 'functions.php';
+
+$db = getDBConnection();
+
+$stmt = $db->query("SELECT COUNT(*) FROM cgnat_logs");
+$total_logs = $stmt->fetchColumn();
+
+$stmt = $db->query("SELECT COUNT(*) FROM clientes");
+$total_clientes = $stmt->fetchColumn();
+
+$stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE DATE(data_consulta) = CURRENT_DATE");
+$consultas_hoje = $stmt->fetchColumn();
+
+include 'menu.php';
+?>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CGNAT LGPD - Início</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card-welcome {
+            background: white;
+            border-radius: 10px;
+            padding: 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .card-welcome h1 {
+            color: #333;
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .card-welcome p {
+            color: #666;
+            font-size: 16px;
+        }
+        .card-welcome .user {
+            color: #667eea;
+            font-weight: bold;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .card .numero {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .card .label {
+            color: #888;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+        .card-verde .numero { color: #27ae60; }
+        .card-vermelho .numero { color: #e74c3c; }
+        .card-amarelo .numero { color: #f39c12; }
+        .btn-consulta {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 18px 50px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.2s;
+            margin-top: 10px;
+        }
+        .btn-consulta:hover {
+            transform: scale(1.02);
+        }
+        .actions {
+            text-align: center;
+            margin-top: 20px;
+        }
+        @media (max-width: 768px) {
+            .cards {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card-welcome">
+            <h1>👋 Bem-vindo, <span class="user"><?php echo htmlspecialchars($_SESSION['nome_completo']); ?></span></h1>
+            <p>Sistema de Consulta CGNAT para atendimento à LGPD.</p>
+            <p style="margin-top: 5px; font-size: 14px; color: #999;">
+                Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong>
+            </p>
+        </div>
+        
+        <div class="cards">
+            <div class="card card-verde">
+                <div class="numero"><?php echo $consultas_hoje; ?></div>
+                <div class="label">Consultas Hoje</div>
+            </div>
+            <div class="card">
+                <div class="numero"><?php echo number_format($total_logs); ?></div>
+                <div class="label">Total de Logs CGNAT</div>
+            </div>
+            <div class="card card-amarelo">
+                <div class="numero"><?php echo number_format($total_clientes); ?></div>
+                <div class="label">Clientes Cadastrados</div>
+            </div>
+            <div class="card card-vermelho">
+                <div class="numero"><?php echo date('d/m/Y'); ?></div>
+                <div class="label">Data Atual</div>
+            </div>
+        </div>
+        
+        <div class="actions">
+            <a href="consultar.php" class="btn-consulta">🔍 Ir para Consultas</a>
+        </div>
+    </div>
+</body>
+</html>
+INDEX_PHP
+
+# 10.8 DASHBOARD.PHP
 cat > /var/www/html/cgnat/dashboard.php << 'DASHBOARD_PHP'
 <?php
 require_once 'auth.php';
@@ -795,7 +943,7 @@ include 'menu.php';
 </html>
 DASHBOARD_PHP
 
-# 10.8 CONSULTAR.PHP
+# 10.9 CONSULTAR.PHP
 cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 <?php
 require_once 'auth.php';
@@ -938,7 +1086,7 @@ include 'menu.php';
 </html>
 CONSULTAR_PHP
 
-# 10.9 RELATORIOS.PHP
+# 10.10 RELATORIOS.PHP
 cat > /var/www/html/cgnat/relatorios.php << 'RELATORIOS_PHP'
 <?php
 require_once 'auth.php';
@@ -1035,7 +1183,7 @@ include 'menu.php';
 </html>
 RELATORIOS_PHP
 
-# 10.10 ADMIN.PHP
+# 10.11 ADMIN.PHP
 cat > /var/www/html/cgnat/admin.php << 'ADMIN_PHP'
 <?php
 require_once 'auth.php';
@@ -1214,7 +1362,7 @@ include 'menu.php';
 </html>
 ADMIN_PHP
 
-print_success "TODOS os 10 arquivos PHP criados com sucesso!"
+print_success "TODOS os 11 arquivos PHP criados com sucesso!"
 
 # ============================================================
 # 11. CONFIGURAR CRONJOBS
