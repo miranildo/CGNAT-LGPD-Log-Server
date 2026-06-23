@@ -1386,6 +1386,7 @@ print_success "Cronjobs configurados"
 # ============================================================
 print_header "12. CRIANDO SCRIPTS ÚTEIS"
 
+# Script de Backup
 cat > /usr/local/bin/backup_cgnat.sh << 'BACKUP'
 #!/bin/bash
 BACKUP_DIR="/backup/cgnat"
@@ -1397,6 +1398,88 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
+# Script de Sincronização MK-AUTH (usando variáveis globais)
+cat > /usr/local/bin/sync_mkauth.sh << 'SYNC'
+#!/bin/bash
+# Script para sincronizar dados do MK-AUTH via SSH
+# Usa as variáveis globais definidas no script principal
+
+echo "$(date): Iniciando sincronização com MK-AUTH..."
+
+# Usando as variáveis do script principal
+MK_AUTH_IP="$MK_AUTH_IP"
+MK_AUTH_USER="$MK_AUTH_USER"
+MK_AUTH_PASS="$MK_AUTH_PASS"
+DB_USER="root"
+DB_PASS="$MK_AUTH_DB_PASS"
+DB_NAME="mkradius"
+
+# Criar arquivo temporário
+TMP_FILE="/tmp/radacct_export_$$.csv"
+
+# Buscar dados via SSH (usando as tabelas corretas: sis_cliente e sis_adicional)
+sshpass -p "$MK_AUTH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $MK_AUTH_USER@$MK_AUTH_IP \
+"mysql -u $DB_USER -p$DB_PASS -B -N -e '
+SELECT 
+    login,
+    nome,
+    ip
+FROM $DB_NAME.sis_cliente
+WHERE cli_ativado = \"s\"
+AND ip IS NOT NULL
+AND ip != \"\"
+UNION
+SELECT 
+    username,
+    nome,
+    ip
+FROM $DB_NAME.sis_adicional
+WHERE bloqueado = \"nao\"
+AND ip IS NOT NULL
+AND ip != \"\"
+'" > "$TMP_FILE"
+
+if [ -s "$TMP_FILE" ]; then
+    CLIENTES=$(wc -l < "$TMP_FILE")
+    echo "Dados exportados do MK-AUTH: $CLIENTES clientes"
+    
+    # Importar para o PostgreSQL
+    sudo -u postgres psql -d cgnat_logs << SQL
+    TRUNCATE clientes;
+    
+    CREATE TEMP TABLE temp_clientes (
+        login text,
+        nome text,
+        ip_privado text
+    );
+    
+    COPY temp_clientes (login, nome, ip_privado)
+    FROM '$TMP_FILE'
+    DELIMITER E'\t'
+    CSV;
+    
+    INSERT INTO clientes (login, nome, ip_privado)
+    SELECT 
+        login,
+        nome,
+        ip_privado::inet
+    FROM temp_clientes
+    WHERE ip_privado IS NOT NULL AND ip_privado != '';
+    
+    SELECT 'Clientes importados: ' || COUNT(*) as status FROM clientes;
+SQL
+    
+    rm -f "$TMP_FILE"
+else
+    echo "ERRO: Não foi possível exportar dados do MK-AUTH"
+    echo "Verifique a conectividade com $MK_AUTH_IP"
+fi
+
+echo "$(date): Sincronização concluída."
+SYNC
+chmod +x /usr/local/bin/sync_mkauth.sh
+
+# Script de Monitoramento de Disco
 cat > /usr/local/bin/monitor_disco.sh << 'MONITOR'
 #!/bin/bash
 echo "=== MONITORAMENTO DE DISCO CGNAT ==="
@@ -1412,6 +1495,61 @@ echo "📁 Backups:"
 du -sh /backup/cgnat/ 2>/dev/null || echo "Nenhum backup"
 MONITOR
 chmod +x /usr/local/bin/monitor_disco.sh
+
+# Script para criar partições automaticamente
+cat > /usr/local/bin/create_cgnat_partition.sh << 'PART'
+#!/bin/bash
+# Script para criar partições CGNAT automaticamente
+
+echo "$(date): Criando partições CGNAT..."
+
+sudo -u postgres psql -d cgnat_logs << 'SQL'
+DO $$
+DECLARE
+    mes_atual DATE;
+    mes_seguinte DATE;
+    nome_particao TEXT;
+    data_inicio TEXT;
+    data_fim TEXT;
+    i INTEGER;
+BEGIN
+    FOR i IN 0..5 LOOP
+        mes_atual := date_trunc('month', CURRENT_DATE + (i || ' months')::INTERVAL);
+        mes_seguinte := mes_atual + INTERVAL '1 month';
+        data_inicio := to_char(mes_atual, 'YYYY-MM-DD');
+        data_fim := to_char(mes_seguinte, 'YYYY-MM-DD');
+        nome_particao := 'cgnat_logs_' || to_char(mes_atual, 'YYYY_MM');
+        
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_tables 
+            WHERE tablename = nome_particao
+        ) THEN
+            EXECUTE format('
+                CREATE TABLE %I PARTITION OF cgnat_logs
+                FOR VALUES FROM (%L) TO (%L)
+            ', nome_particao, data_inicio, data_fim);
+            
+            EXECUTE format('
+                CREATE INDEX %I ON %I(ip_publico)
+            ', 'idx_' || nome_particao || '_ip_pub', nome_particao);
+            
+            EXECUTE format('
+                CREATE INDEX %I ON %I(ip_privado)
+            ', 'idx_' || nome_particao || '_ip_priv', nome_particao);
+            
+            EXECUTE format('
+                CREATE INDEX %I ON %I(data_hora)
+            ', 'idx_' || nome_particao || '_data', nome_particao);
+            
+            RAISE NOTICE 'Partição % criada com sucesso', nome_particao;
+        END IF;
+    END LOOP;
+END $$;
+SQL
+
+echo "$(date): Partições criadas com sucesso."
+PART
+chmod +x /usr/local/bin/create_cgnat_partition.sh
 
 print_success "Scripts criados"
 
