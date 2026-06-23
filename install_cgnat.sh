@@ -1353,7 +1353,7 @@ include 'menu.php';
 </html>
 DASHBOARD_PHP
 
-# 12.9 CONSULTAR.PHP (CORRIGIDO - usa c.login)
+# 12.9 CONSULTAR.PHP
 cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 <?php
 require_once 'auth.php';
@@ -1433,6 +1433,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $log_protocolo = $primeiro['protocolo'] ?? null;
             }
             
+            // CORREÇÃO: Tratar valores vazios para campos INET
+            $ip_privado_sql = (!empty($ip_privado) && $ip_privado != '') ? $ip_privado : null;
+            $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
+            
             // SALVAR NA TABELA lgpd_audit COM TODAS AS INFORMAÇÕES
             $stmt = $db->prepare("
                 INSERT INTO lgpd_audit (
@@ -1458,14 +1462,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $porta,
                 $motivo,
                 $protocolo,
-                $ip_privado,
+                $ip_privado_sql,  // PODE SER NULL
                 $cliente_nome,
                 $log_data_hora,
                 $log_acao,
                 $log_destino,
                 $log_protocolo,
                 $total,
-                $_SERVER['REMOTE_ADDR'] ?? null,
+                $ip_origem,       // PODE SER NULL
                 $_SERVER['HTTP_USER_AGENT'] ?? null
             ]);
             
@@ -1493,8 +1497,8 @@ include 'menu.php';
         .row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .form-group { margin-bottom: 20px; }
         label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
-        input, select { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
-        input:focus, select:focus { border-color: #667eea; outline: none; }
+        input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+        input:focus { border-color: #667eea; outline: none; }
         .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn:hover { opacity: 0.9; }
         .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
