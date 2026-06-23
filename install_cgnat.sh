@@ -2,8 +2,8 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO COMPLETA - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 3.0 - DEFINITIVO (TODAS AS CORREÇÕES)
-# Autor: Sistema CGNAT - João Pessoa/PB
+# Versão: 1.0
+# Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
 # Data: $(date +%Y%m%d)
 # ============================================================
 
