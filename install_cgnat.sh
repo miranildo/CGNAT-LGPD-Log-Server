@@ -102,7 +102,7 @@ apt upgrade -y
 print_success "Sistema atualizado"
 
 # ============================================================
-# 4. INSTALAR PACOTES (COMPATÍVEL DEBIAN 12 E 13)
+# 4. INSTALAR PACOTES (COM DETECÇÃO DE VERSÃO DO DEBIAN)
 # ============================================================
 print_header "4. INSTALANDO PACOTES"
 
@@ -125,59 +125,73 @@ fi
 
 print_info "Detectado Debian ${DEBIAN_VERSION} (${DEBIAN_CODENAME})"
 
-# Instalar pacotes base
+# Instalar pacotes base (incluindo gnupg e ferramentas de diagnóstico)
 print_info "Instalando pacotes base..."
 apt update
 apt install -y \
-    sudo wget curl vim htop net-tools \
-    build-essential gnupg \
+    sudo \
+    wget curl vim htop net-tools \
+    build-essential \
+    gnupg \
     python3 python3-pip python3-venv \
     postgresql postgresql-contrib \
     rsyslog logrotate \
     apache2 \
     sshpass \
     default-mysql-client \
-    tcpdump git chrony \
-    php php-pgsql php-curl php-mbstring
+    tcpdump \
+    git \
+    chrony \
+    iotop \
+    smartmontools \
+    sysstat
+
+# PHP e extensões (compatível com PHP 8.x)
+print_info "Instalando PHP e extensões..."
+apt install -y \
+    php \
+    php-pgsql \
+    php-curl \
+    php-mbstring
 
 print_success "Pacotes base instalados"
 
-# Instalar mysql_fdw
+# Instalar mysql_fdw de acordo com a versão do Debian
 print_info "Instalando postgresql-15-mysql-fdw..."
 
-# Verificar se o pacote já está instalado
 if dpkg -l 2>/dev/null | grep -q "postgresql-15-mysql-fdw"; then
     print_info "postgresql-15-mysql-fdw já está instalado"
 else
-    # Verificar se o pacote está disponível nativamente
-    if apt-cache show postgresql-15-mysql-fdw 2>/dev/null | grep -q "Package: postgresql-15-mysql-fdw"; then
-        print_info "Instalando pacote nativo"
-        apt install -y postgresql-15-mysql-fdw
-    else
-        # Adicionar repositório PGDG
-        print_info "Adicionando repositório PGDG..."
-        
-        mkdir -p /usr/share/keyrings
-        
-        # Instalar chave GPG
-        if command -v gpg &> /dev/null; then
-            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-        else
-            wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-        fi
-        
-        # Determinar repositório correto
-        if [ "$DEBIAN_CODENAME" = "trixie" ] || [ "$DEBIAN_VERSION" = "13" ]; then
-            PG_REPO="trixie-pgdg"
-        else
-            PG_REPO="${DEBIAN_CODENAME}-pgdg"
-        fi
-        
-        echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $PG_REPO main" > /etc/apt/sources.list.d/pgdg.list
-        
-        apt update
-        apt install -y postgresql-15-mysql-fdw
-    fi
+    case "${DEBIAN_VERSION}" in
+        12|bookworm)
+            print_info "Debian 12 - Instalando pacote nativo"
+            apt install -y postgresql-15-mysql-fdw
+            ;;
+        13|trixie)
+            print_info "Debian 13 - Adicionando repositório PGDG..."
+            mkdir -p /usr/share/keyrings
+            if command -v gpg &> /dev/null; then
+                curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            else
+                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+            fi
+            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+            apt update
+            apt install -y postgresql-15-mysql-fdw
+            ;;
+        *)
+            print_warning "Versão não reconhecida. Usando PGDG..."
+            mkdir -p /usr/share/keyrings
+            if command -v gpg &> /dev/null; then
+                curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            else
+                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+            fi
+            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+            apt update
+            apt install -y postgresql-15-mysql-fdw
+            ;;
+    esac
 fi
 
 print_success "Pacotes instalados com sucesso!"
@@ -255,8 +269,8 @@ if [ -f "$CONF_FILE" ]; then
     echo "random_page_cost = 1.1" >> "$CONF_FILE"
     echo "effective_io_concurrency = 200" >> "$CONF_FILE"
     echo "work_mem = 4MB" >> "$CONF_FILE"
-    echo "min_wal_size = 1GB" >> "$CONF_FILE"
-    echo "max_wal_size = 4GB" >> "$CONF_FILE"
+    echo "min_wal_size = 512MB" >> "$CONF_FILE"
+    echo "max_wal_size = 2GB" >> "$CONF_FILE"
 fi
 
 # Iniciar PostgreSQL da versão correta
@@ -399,6 +413,11 @@ CREATE TABLE IF NOT EXISTS pppoe_sessoes (
     criado_em TIMESTAMP DEFAULT NOW()
 );
 
+-- VIEW para contagem rápida de logs
+CREATE OR REPLACE VIEW vw_cgnat_logs_count AS
+SELECT COUNT(*) as total FROM cgnat_logs;
+
+-- Índices
 CREATE INDEX IF NOT EXISTS idx_cgnat_ip_publico ON cgnat_logs(ip_publico);
 CREATE INDEX IF NOT EXISTS idx_cgnat_ip_privado ON cgnat_logs(ip_privado);
 CREATE INDEX IF NOT EXISTS idx_cgnat_data_hora ON cgnat_logs(data_hora);
@@ -416,12 +435,22 @@ CREATE INDEX IF NOT EXISTS idx_lgpd_cliente ON lgpd_audit(cliente_nome);
 CREATE INDEX IF NOT EXISTS idx_lgpd_ipv6 ON lgpd_audit(ipv6_cliente);
 CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario);
 
+-- Usuários padrão
 INSERT INTO usuarios (usuario, senha_hash, nome_completo, perfil) VALUES
 ('admin', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Administrador', 'admin'),
 ('juridico', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Departamento Jurídico', 'juridico'),
 ('operador', '$2y$10$WmuK/dyBnXHzG/iv9cB50uufL3FFKivItk9/rlT3YuliO0CAo30nq', 'Operador', 'operador')
 ON CONFLICT (usuario) DO NOTHING;
 
+-- Permissões
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_admin;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cgnat_admin;
+GRANT INSERT ON cgnat_logs TO cgnat_parser;
+GRANT INSERT ON clientes TO cgnat_parser;
+GRANT SELECT ON vw_cgnat_logs_count TO cgnat_admin;
+GRANT SELECT ON vw_cgnat_logs_count TO cgnat_parser;
+
+-- Criação de partições
 DO $$
 DECLARE
     mes_atual DATE;
@@ -457,11 +486,6 @@ BEGIN
         CREATE INDEX IF NOT EXISTS %I ON %I(ipv6_cliente)
     ', 'idx_' || nome_particao || '_ipv6', nome_particao);
 END $$;
-
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_admin;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cgnat_admin;
-GRANT INSERT ON cgnat_logs TO cgnat_parser;
-GRANT INSERT ON clientes TO cgnat_parser;
 EOF
 
 print_success "Tabelas criadas com as novas colunas LGPD e IPv6"
@@ -2282,7 +2306,7 @@ print_header "13. CONFIGURANDO RSYSLOG"
 mkdir -p /var/run/cgnat
 chmod 755 /var/run/cgnat
 
-# Criar pipe com buffer otimizado
+# Criar pipe
 mkfifo /var/run/cgnat.pipe 2>/dev/null || true
 chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
 
@@ -2290,6 +2314,9 @@ cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
 # Otimizações para alta velocidade
 $MaxMessageSize 64k
 $IMUDPServerTimeStamp on
+$MainMsgQueueSize 5000
+$MainMsgQueueDiscardMark 4500
+$MainMsgQueueDiscardSeverity 5
 
 module(load="imudp")
 input(type="imudp" port="514")
@@ -2303,8 +2330,37 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
 }
 RSYSLOG
 
+# Criar script de inicialização para o RAM disk
+mkdir -p /dev/shm/cgnat_logs
+chmod 755 /dev/shm/cgnat_logs
+
+cat > /etc/systemd/system/cgnat-ramdisk.service << 'EOF'
+[Unit]
+Description=CGNAT RAM Disk for logs
+Before=rsyslog.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'mkdir -p /dev/shm/cgnat_logs && chmod 755 /dev/shm/cgnat_logs'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable cgnat-ramdisk.service
+
+# Mover raw.log para RAM se existir
+if [ -f /var/log/cgnat/raw.log ]; then
+    mv /var/log/cgnat/raw.log /dev/shm/cgnat_logs/ 2>/dev/null || true
+fi
+ln -sf /dev/shm/cgnat_logs/raw.log /var/log/cgnat/raw.log
+chown syslog:adm /dev/shm/cgnat_logs/raw.log 2>/dev/null || true
+chmod 640 /dev/shm/cgnat_logs/raw.log 2>/dev/null || true
+
 systemctl restart rsyslog 2>/dev/null || true
-print_success "Rsyslog configurado com otimizações"
+print_success "Rsyslog configurado com otimizações e raw.log em RAM"
 
 # ============================================================
 # 14. CONFIGURAR CRONJOBS
@@ -2632,6 +2688,45 @@ print_header "15.7. CONFIGURANDO CRON PARA IPv6"
 
 (crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/sync_ipv6_cisco.sh >> /var/log/cgnat/sync_ipv6.log 2>&1") | crontab -
 print_success "Cron para IPv6 configurado (a cada 5 minutos)"
+
+# ============================================================
+# 15.8. APLICAR OTIMIZAÇÕES POSTGRESQL
+# ============================================================
+print_header "15.8. APLICANDO OTIMIZAÇÕES POSTGRESQL"
+
+print_info "Aplicando otimizações para reduzir escrita em disco..."
+
+sudo -u postgres psql -d cgnat_logs << 'SQL'
+-- Ativar compressão WAL (reduz 30-50% do espaço)
+ALTER SYSTEM SET wal_compression = on;
+
+-- Checkpoints menos frequentes (reduz I/O)
+ALTER SYSTEM SET checkpoint_timeout = '15min';
+
+-- Limitar tamanho do WAL
+ALTER SYSTEM SET max_wal_size = '2GB';
+ALTER SYSTEM SET min_wal_size = '512MB';
+
+-- Reduzir escritas síncronas (CUIDADO! Risco de perda de dados em crash)
+-- Mantenha UPS e backups em dia
+ALTER SYSTEM SET synchronous_commit = off;
+ALTER SYSTEM SET wal_sync_method = fdatasync;
+
+-- Recarregar configuração
+SELECT pg_reload_conf();
+
+-- Mostrar configurações aplicadas
+SELECT name, setting 
+FROM pg_settings 
+WHERE name IN ('wal_compression', 'checkpoint_timeout', 'max_wal_size', 'min_wal_size', 'synchronous_commit', 'wal_sync_method');
+SQL
+
+print_success "Otimizações PostgreSQL aplicadas"
+
+print_info "⚠️  synchronous_commit = off foi ativado!"
+print_info "   Isso reduz 50-70% da escrita em disco."
+print_info "   Em caso de queda de energia, você pode perder até 1 segundo de dados."
+print_info "   Mantenha o UPS e backups em dia!"
 
 # ============================================================
 # 16. CONCEDER PERMISSÃO USUARIO CGNAT-PARSER
