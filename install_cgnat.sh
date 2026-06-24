@@ -1233,7 +1233,6 @@ include 'menu.php';
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
 
-        /* TABELA - TAMANHO ORIGINAL */
         table {
             width: 100%;
             border-collapse: collapse;
@@ -1257,6 +1256,7 @@ include 'menu.php';
         .badge-info { background: #cce5ff; color: #004085; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; }
         .badge-success { background: #d4edda; color: #155724; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; }
         .badge-danger { background: #f8d7da; color: #721c24; padding: 4px 12px; border-radius: 20px; font-size: 13px; font-weight: 600; display: inline-block; }
+        .badge-ipv6 { background: #d1ecf1; color: #0c5460; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; font-family: monospace; }
         .text-muted { color: #999; }
         .log-info { font-size: 14px; color: #888; white-space: nowrap; }
 
@@ -1310,12 +1310,24 @@ include 'menu.php';
                             <th>Porta</th>
                             <th>Cliente</th>
                             <th>IP Privado</th>
+                            <th>IPv6</th>
                             <th>Log Original</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if ($ultimas): ?>
-                            <?php foreach ($ultimas as $row): ?>
+                            <?php foreach ($ultimas as $row): 
+                                // Buscar IPv6 do cliente
+                                $ipv6 = '';
+                                if (!empty($row['ip_privado'])) {
+                                    $stmt_ipv6 = $db->prepare("SELECT ipv6_prefix FROM clientes WHERE ip_privado = ?::inet");
+                                    $stmt_ipv6->execute([$row['ip_privado']]);
+                                    $ipv6_result = $stmt_ipv6->fetch(PDO::FETCH_ASSOC);
+                                    if ($ipv6_result && !empty($ipv6_result['ipv6_prefix'])) {
+                                        $ipv6 = $ipv6_result['ipv6_prefix'];
+                                    }
+                                }
+                            ?>
                             <tr>
                                 <td style="white-space:nowrap;"><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
                                 <td><?php echo htmlspecialchars($row['usuario']); ?></td>
@@ -1329,6 +1341,13 @@ include 'menu.php';
                                     <?php endif; ?>
                                 </td>
                                 <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
+                                <td>
+                                    <?php if (!empty($ipv6)): ?>
+                                        <span class="badge-ipv6"><?php echo htmlspecialchars($ipv6); ?></span>
+                                    <?php else: ?>
+                                        <span class="text-muted">-</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="log-info">
                                     <?php if ($row['log_acao']): ?>
                                         <span class="badge <?php echo $row['log_acao'] == 'Created' ? 'badge-success' : 'badge-danger'; ?>">
@@ -1342,7 +1361,7 @@ include 'menu.php';
                             </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">Nenhuma consulta realizada</td></tr>
+                            <tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">Nenhuma consulta realizada</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -1365,6 +1384,7 @@ $total = 0;
 $mensagem = '';
 $cliente_nome = '';
 $ip_privado = '';
+$ipv6_prefix = '';
 $log_data_hora = '';
 $log_acao = '';
 $log_destino = '';
@@ -1396,7 +1416,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $db = getDBConnection();
             
-            // CONSULTA COM JOIN PARA PEGAR O NOME DO CLIENTE
+            // CONSULTA COM JOIN PARA PEGAR O NOME DO CLIENTE E IPv6
             $stmt = $db->prepare("
                 SELECT 
                     c.data_hora,
@@ -1409,7 +1429,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     c.porta_destino,
                     c.protocolo,
                     COALESCE(cl.nome, c.login) as cliente_nome,
-                    c.login as cliente_login
+                    c.login as cliente_login,
+                    cl.ipv6_prefix
                 FROM cgnat_logs c
                 LEFT JOIN clientes cl ON c.login = cl.login
                 WHERE c.ip_publico = ?::inet
@@ -1422,57 +1443,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $total = count($resultados);
             
+            // Pegar informações do primeiro resultado
             if ($total > 0) {
-                // Pegar informações do primeiro resultado
                 $primeiro = $resultados[0];
                 $cliente_nome = $primeiro['cliente_nome'] ?? 'Nao identificado';
                 $ip_privado = $primeiro['ip_privado'] ?? null;
+                $ipv6_prefix = $primeiro['ipv6_prefix'] ?? null;
                 $log_data_hora = $primeiro['data_hora'] ?? null;
                 $log_acao = $primeiro['acao'] ?? null;
                 $log_destino = ($primeiro['ip_destino'] ?? '') . ':' . ($primeiro['porta_destino'] ?? '');
                 $log_protocolo = $primeiro['protocolo'] ?? null;
-                
-                // Tratar valores vazios para campos TIMESTAMP e INET
-                $ip_privado_sql = (!empty($ip_privado)) ? $ip_privado : null;
-                $log_data_hora_sql = (!empty($log_data_hora)) ? $log_data_hora : null;
-                $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
-                
-                // SALVAR NA TABELA lgpd_audit SOMENTE SE ENCONTROU RESULTADOS
-                $stmt = $db->prepare("
-                    INSERT INTO lgpd_audit (
-                        usuario, 
-                        ip_consultado, 
-                        porta_consultada, 
-                        motivo, 
-                        protocolo_judicial,
-                        ip_privado,
-                        cliente_nome,
-                        log_data_hora,
-                        log_acao,
-                        log_destino,
-                        log_protocolo,
-                        resultado_registros,
-                        ip_origem_consulta,
-                        user_agent
-                    ) VALUES (?, ?, ?, ?, ?, ?::inet, ?, ?, ?, ?, ?, ?, ?::inet, ?)
-                ");
-                $stmt->execute([
-                    $_SESSION['usuario'],
-                    $ip_publico,
-                    $porta,
-                    $motivo,
-                    $protocolo,
-                    $ip_privado_sql,
-                    $cliente_nome,
-                    $log_data_hora_sql,
-                    $log_acao,
-                    $log_destino,
-                    $log_protocolo,
-                    $total,
-                    $ip_origem,
-                    $_SERVER['HTTP_USER_AGENT'] ?? null
-                ]);
             }
+            
+            // SALVAR NA TABELA lgpd_audit COM TODAS AS INFORMAÇÕES
+            $ip_privado_sql = (!empty($ip_privado)) ? $ip_privado : null;
+            $log_data_hora_sql = (!empty($log_data_hora)) ? $log_data_hora : null;
+            $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
+            
+            $stmt = $db->prepare("
+                INSERT INTO lgpd_audit (
+                    usuario, 
+                    ip_consultado, 
+                    porta_consultada, 
+                    motivo, 
+                    protocolo_judicial,
+                    ip_privado,
+                    cliente_nome,
+                    ipv6_cliente,
+                    log_data_hora,
+                    log_acao,
+                    log_destino,
+                    log_protocolo,
+                    resultado_registros,
+                    ip_origem_consulta,
+                    user_agent
+                ) VALUES (?, ?, ?, ?, ?, ?::inet, ?, ?::inet, ?, ?, ?, ?, ?, ?::inet, ?)
+            ");
+            $stmt->execute([
+                $_SESSION['usuario'],
+                $ip_publico,
+                $porta,
+                $motivo,
+                $protocolo,
+                $ip_privado_sql,
+                $cliente_nome,
+                $ipv6_prefix,
+                $log_data_hora_sql,
+                $log_acao,
+                $log_destino,
+                $log_protocolo,
+                $total,
+                $ip_origem,
+                $_SERVER['HTTP_USER_AGENT'] ?? null
+            ]);
             
             $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado para os parâmetros informados.';
             
@@ -1514,12 +1537,14 @@ include 'menu.php';
         .badge-success { background: #d4edda; color: #155724; }
         .badge-danger { background: #f8d7da; color: #721c24; }
         .badge-info { background: #cce5ff; color: #004085; }
+        .badge-ipv6 { background: #d1ecf1; color: #0c5460; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; font-family: monospace; }
         .alert { padding: 15px; border-radius: 8px; margin-bottom: 20px; }
         .alert-success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .alert-danger { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
         .alert-warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
         .client-info { background: #e7f3ff; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #667eea; }
         .client-info h3 { color: #004085; margin: 0; }
+        .client-info p { margin-top: 5px; color: #555; font-size: 14px; }
         .text-muted { color: #999; }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
     </style>
@@ -1538,9 +1563,10 @@ include 'menu.php';
         <div class="client-info">
             <h3>👤 Cliente: <?php echo htmlspecialchars($cliente_nome); ?></h3>
             <?php if ($ip_privado): ?>
-            <p style="margin-top:5px;color:#555;font-size:14px;">
-                📍 IP Privado: <strong><?php echo htmlspecialchars($ip_privado); ?></strong>
-            </p>
+            <p>📍 IP Privado: <strong><?php echo htmlspecialchars($ip_privado); ?></strong></p>
+            <?php endif; ?>
+            <?php if ($ipv6_prefix): ?>
+            <p>🌐 IPv6: <strong><?php echo htmlspecialchars($ipv6_prefix); ?></strong></p>
             <?php endif; ?>
         </div>
         <?php endif; ?>
@@ -1605,6 +1631,7 @@ include 'menu.php';
                         <th>Destino</th>
                         <th>Protocolo</th>
                         <th>Cliente</th>
+                        <th>IPv6</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1629,6 +1656,13 @@ include 'menu.php';
                                 <span class="badge badge-info"><?php echo htmlspecialchars($row['cliente_login']); ?></span>
                             <?php else: ?>
                                 <span class="text-muted">Não identificado</span>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <?php if (!empty($row['ipv6_prefix'])): ?>
+                                <span class="badge-ipv6"><?php echo htmlspecialchars($row['ipv6_prefix']); ?></span>
+                            <?php else: ?>
+                                <span class="text-muted">-</span>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -1687,7 +1721,24 @@ try {
     $stmt->execute([$data_inicio, $data_fim]);
     $por_usuario = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-    $stmt = $db->prepare("SELECT id, usuario, ip_consultado, porta_consultada, motivo, protocolo_judicial, data_consulta FROM lgpd_audit WHERE DATE(data_consulta) BETWEEN ? AND ? ORDER BY data_consulta DESC LIMIT 50");
+    $stmt = $db->prepare("
+        SELECT 
+            a.id, 
+            a.usuario, 
+            a.ip_consultado, 
+            a.porta_consultada, 
+            a.motivo, 
+            a.protocolo_judicial, 
+            a.data_consulta,
+            a.cliente_nome,
+            a.ip_privado,
+            c.ipv6_prefix
+        FROM lgpd_audit a
+        LEFT JOIN clientes c ON a.ip_privado = c.ip_privado
+        WHERE DATE(a.data_consulta) BETWEEN ? AND ? 
+        ORDER BY a.data_consulta DESC 
+        LIMIT 50
+    ");
     $stmt->execute([$data_inicio, $data_fim]);
     $ultimas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
@@ -1715,12 +1766,15 @@ include 'menu.php';
         .btn { padding: 8px 20px; background: #667eea; color: white; border: none; border-radius: 5px; cursor: pointer; }
         .btn-sm { padding: 4px 12px; font-size: 12px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
         .btn-sm:hover { opacity: 0.8; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { background: #f8f9fa; padding: 12px; text-align: left; border-bottom: 2px solid #dee2e6; }
-        td { padding: 10px; border-bottom: 1px solid #eee; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+        th { background: #f8f9fa; padding: 10px; text-align: left; border-bottom: 2px solid #dee2e6; }
+        td { padding: 8px; border-bottom: 1px solid #eee; }
         tr:hover { background: #f8f9fa; }
         .alert { padding: 12px; border-radius: 8px; margin-bottom: 20px; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        @media (max-width: 768px) { .row { grid-template-columns: 1fr 1fr; } }
+        .badge-info { background: #cce5ff; color: #004085; padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+        .badge-ipv6 { background: #d1ecf1; color: #0c5460; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; font-family: monospace; }
+        .text-muted { color: #999; }
+        @media (max-width: 768px) { .row { grid-template-columns: 1fr 1fr; } table { font-size: 12px; } }
     </style>
 </head>
 <body>
@@ -1755,21 +1809,48 @@ include 'menu.php';
         
         <h3 style="margin-top:30px;">📋 Últimas Consultas <small style="font-weight:normal;color:#888;">(clique em "Reabrir" para ver os resultados)</small></h3>
         <table>
-            <thead><tr><th>Data</th><th>Usuário</th><th>IP</th><th>Porta</th><th>Motivo</th><th>Ação</th></tr></thead>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Usuário</th>
+                    <th>IP</th>
+                    <th>Porta</th>
+                    <th>Cliente</th>
+                    <th>IP Privado</th>
+                    <th>IPv6</th>
+                    <th>Motivo</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
             <tbody>
                 <?php if ($ultimas): foreach ($ultimas as $row): ?>
                 <tr>
-                    <td><?php echo htmlspecialchars($row['data_consulta']); ?></td>
+                    <td><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
                     <td><?php echo htmlspecialchars($row['usuario']); ?></td>
                     <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
                     <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                    <td>
+                        <?php if (!empty($row['cliente_nome'])): ?>
+                            <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
+                        <?php else: ?>
+                            <span class="text-muted">-</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
+                    <td>
+                        <?php if (!empty($row['ipv6_prefix'])): ?>
+                            <span class="badge-ipv6"><?php echo htmlspecialchars($row['ipv6_prefix']); ?></span>
+                        <?php else: ?>
+                            <span class="text-muted">-</span>
+                        <?php endif; ?>
+                    </td>
                     <td><?php echo htmlspecialchars($row['motivo']); ?></td>
                     <td>
                         <a href="consultar.php?ip_publico=<?php echo urlencode($row['ip_consultado']); ?>&porta=<?php echo urlencode($row['porta_consultada']); ?>&data_inicio=<?php echo date('Y-m-d', strtotime($row['data_consulta'])); ?>&data_fim=<?php echo date('Y-m-d', strtotime($row['data_consulta'])); ?>" class="btn-sm">🔍 Reabrir</a>
                     </td>
                 </tr>
                 <?php endforeach; else: ?>
-                <tr><td colspan="6" style="text-align:center;color:#999;">Nenhuma consulta</td></tr>
+                <tr><td colspan="9" style="text-align:center;color:#999;">Nenhuma consulta</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
