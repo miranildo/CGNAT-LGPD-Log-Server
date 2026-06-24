@@ -2417,20 +2417,93 @@ print_success "Script de sincronização IPv6 criado"
 print_header "15.6.1. EXECUTANDO SINCRONIZAÇÃO IPv6 INICIAL"
 
 print_info "Coletando IPv6 dos clientes no Cisco ASR..."
-/usr/local/bin/sync_ipv6_cisco.sh
 
-if [ $? -eq 0 ]; then
-    print_success "Sincronização IPv6 inicial concluída!"
+# Marcar tempo de início
+INICIO=$(date +%s)
+
+echo ""
+echo "⏳ Aguardando sincronização com o Cisco ASR..."
+echo "📡 Conectando ao Cisco ASR em ${CISCO_IP}..."
+echo ""
+
+# Função para mostrar barra de progresso
+mostrar_progresso() {
+    local atual=$1
+    local total=$2
+    local tamanho=50
+    local progresso=$((atual * tamanho / total))
+    local restante=$((tamanho - progresso))
     
-    # Mostrar quantos clientes têm IPv6
-    TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" | xargs)
-    print_info "Total de clientes com IPv6: ${TOTAL_IPV6}"
+    # Construir a barra
+    local barra=""
+    for ((i=0; i<progresso; i++)); do
+        barra="${barra}█"
+    done
+    for ((i=0; i<restante; i++)); do
+        barra="${barra}░"
+    done
+    
+    printf "\r   [%s] %3d%% (%d/%d)" "$barra" $((atual * 100 / total)) $atual $total
+}
+
+# Iniciar sincronização em background
+/usr/local/bin/sync_ipv6_cisco.sh &
+PID=$!
+
+# Estimar total de clientes
+TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
+TOTAL_CLIENTES=${TOTAL_CLIENTES:-629}
+
+# Barra de progresso
+ATUAL=0
+echo ""
+echo "📊 Progresso da sincronização:"
+echo ""
+
+while kill -0 $PID 2>/dev/null; do
+    # Buscar quantos clientes já foram atualizados
+    ATUAL=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_atualizado IS NOT NULL AND ipv6_atualizado > NOW() - INTERVAL '5 minutes';" 2>/dev/null | xargs)
+    ATUAL=${ATUAL:-0}
+    
+    # Limitar ao total
+    if [ $ATUAL -gt $TOTAL_CLIENTES ]; then
+        ATUAL=$TOTAL_CLIENTES
+    fi
+    
+    # Mostrar barra de progresso (atualiza a linha)
+    mostrar_progresso $ATUAL $TOTAL_CLIENTES
+    
+    sleep 2
+done
+
+# Aguardar finalização
+wait $PID
+STATUS=$?
+
+# Finalizar barra com 100%
+echo ""
+mostrar_progresso $TOTAL_CLIENTES $TOTAL_CLIENTES
+echo ""
+echo ""
+
+# Calcular tempo final
+FIM=$(date +%s)
+DURACAO=$((FIM - INICIO))
+MINUTOS=$((DURACAO / 60))
+SEGUNDOS=$((DURACAO % 60))
+
+# Buscar total de clientes com IPv6
+TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
+
+if [ $STATUS -eq 0 ]; then
+    echo "✅ Sincronização IPv6 concluída em ${MINUTOS}m${SEGUNDOS}s!"
+    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0} de ${TOTAL_CLIENTES}"
+    print_success "Sincronização IPv6 inicial finalizada"
 else
+    echo "❌ Sincronização IPv6 inicial falhou em ${MINUTOS}m${SEGUNDOS}s"
     print_warning "Sincronização IPv6 inicial falhou. O cron tentará novamente a cada 5 minutos."
     print_info "Você pode executar manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
 fi
-
-print_success "Sincronização IPv6 inicial finalizada"
 
 # ============================================================
 # 15.7. CONFIGURAR CRON PARA IPv6
