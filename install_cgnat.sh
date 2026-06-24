@@ -1408,6 +1408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset(
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $ip_publico = $_POST['ip_publico'] ?? '';
     $porta = $_POST['porta'] ?? '';
+    $ipv6_busca = $_POST['ipv6_busca'] ?? '';
     $data_inicio = $_POST['data_inicio'] . ' ' . ($_POST['hora_inicio'] ?? '00:00:00');
     $data_fim = $_POST['data_fim'] . ' ' . ($_POST['hora_fim'] ?? '23:59:59');
     $motivo = $_POST['motivo'] ?? 'Consulta LGPD';
@@ -1418,7 +1419,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $db = getDBConnection();
             
             // CONSULTA COM JOIN PARA PEGAR O NOME DO CLIENTE E IPv6
-            $stmt = $db->prepare("
+            $sql = "
                 SELECT 
                     c.data_hora,
                     c.acao,
@@ -1437,10 +1438,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 WHERE c.ip_publico = ?::inet
                 AND c.porta_publica = ?
                 AND c.data_hora BETWEEN ? AND ?
-                ORDER BY c.data_hora DESC
-                LIMIT 1000
-            ");
-            $stmt->execute([$ip_publico, $porta, $data_inicio, $data_fim]);
+            ";
+            
+            $params = [$ip_publico, $porta, $data_inicio, $data_fim];
+            
+            // Adicionar filtro IPv6 se preenchido
+            if (!empty($ipv6_busca)) {
+                $sql .= " AND cl.ipv6_prefix = ?";
+                $params[] = $ipv6_busca;
+            }
+            
+            $sql .= " ORDER BY c.data_hora DESC LIMIT 1000";
+            
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
             $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $total = count($resultados);
             
@@ -1585,6 +1596,16 @@ include 'menu.php';
             </div>
             <div class="row">
                 <div class="form-group">
+                    <label>IPv6 do Cliente</label>
+                    <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:XXXX::/56" value="<?php echo $_POST['ipv6_busca'] ?? ''; ?>">
+                    <small style="color:#888;font-size:11px;">Filtro opcional - busque pelo prefixo IPv6 do cliente</small>
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                </div>
+            </div>
+            <div class="row">
+                <div class="form-group">
                     <label>Data Início</label>
                     <input type="date" name="data_inicio" id="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>">
                 </div>
@@ -1678,6 +1699,7 @@ include 'menu.php';
     function limparFormulario() {
         document.getElementById('ip_publico').value = '';
         document.getElementById('porta').value = '';
+        document.getElementById('ipv6_busca').value = '';
         document.getElementById('protocolo').value = '';
         
         var hoje = new Date().toISOString().split('T')[0];
@@ -2278,6 +2300,27 @@ EOF
 
 chmod +x /usr/local/bin/sync_ipv6_cisco.sh
 print_success "Script de sincronização IPv6 criado"
+
+# ============================================================
+# 15.6.1. EXECUTAR SINCRONIZAÇÃO IPv6 INICIAL
+# ============================================================
+print_header "15.6.1. EXECUTANDO SINCRONIZAÇÃO IPv6 INICIAL"
+
+print_info "Coletando IPv6 dos clientes no Cisco ASR..."
+/usr/local/bin/sync_ipv6_cisco.sh
+
+if [ $? -eq 0 ]; then
+    print_success "Sincronização IPv6 inicial concluída!"
+    
+    # Mostrar quantos clientes têm IPv6
+    TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" | xargs)
+    print_info "Total de clientes com IPv6: ${TOTAL_IPV6}"
+else
+    print_warning "Sincronização IPv6 inicial falhou. O cron tentará novamente a cada 5 minutos."
+    print_info "Você pode executar manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
+fi
+
+print_success "Sincronização IPv6 inicial finalizada"
 
 # ============================================================
 # 15.7. CONFIGURAR CRON PARA IPv6
