@@ -1392,9 +1392,9 @@ $log_destino = '';
 $log_protocolo = '';
 
 // Verificar se veio via GET (reabrir consulta)
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset($_GET['porta'])) {
-    $_POST['ip_publico'] = $_GET['ip_publico'];
-    $_POST['porta'] = $_GET['porta'];
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['ip_publico']) || isset($_GET['ipv6_busca']))) {
+    $_POST['ip_publico'] = $_GET['ip_publico'] ?? '';
+    $_POST['porta'] = $_GET['porta'] ?? '';
     $_POST['ipv6_busca'] = $_GET['ipv6_busca'] ?? '';
     $_POST['data_inicio'] = $_GET['data_inicio'] ?? date('Y-m-d');
     $_POST['data_fim'] = $_GET['data_fim'] ?? date('Y-m-d');
@@ -1407,15 +1407,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset(
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $ip_publico = $_POST['ip_publico'] ?? '';
-    $porta = $_POST['porta'] ?? '';
-    $ipv6_busca = $_POST['ipv6_busca'] ?? '';
+    $ip_publico = trim($_POST['ip_publico'] ?? '');
+    $porta = trim($_POST['porta'] ?? '');
+    $ipv6_busca = trim($_POST['ipv6_busca'] ?? '');
     $data_inicio = $_POST['data_inicio'] . ' ' . ($_POST['hora_inicio'] ?? '00:00:00');
     $data_fim = $_POST['data_fim'] . ' ' . ($_POST['hora_fim'] ?? '23:59:59');
     $motivo = $_POST['motivo'] ?? 'Consulta LGPD';
     $protocolo = $_POST['protocolo'] ?? '';
     
-    // VALIDAÇÃO: Pelo menos IP+Público+Porta OU IPv6 deve ser preenchido
+    // VALIDAÇÃO: Pelo menos IP+Porta OU IPv6 deve ser preenchido
     if (empty($ip_publico) && empty($ipv6_busca)) {
         $mensagem = '⚠️ Preencha pelo menos o IP Público + Porta, ou o IPv6.';
     } elseif (!empty($ip_publico) && empty($porta)) {
@@ -1445,31 +1445,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ";
             
             $params = [];
-            $param_count = 1;
             
             // Filtro por IP Público e Porta
             if (!empty($ip_publico) && !empty($porta)) {
-                $sql .= " AND c.ip_publico = $" . $param_count . "::inet";
+                $sql .= " AND c.ip_publico = ?::inet AND c.porta_publica = ?";
                 $params[] = $ip_publico;
-                $param_count++;
-                
-                $sql .= " AND c.porta_publica = $" . $param_count;
-                $params[] = $porta;
-                $param_count++;
+                $params[] = (int)$porta;
             }
             
             // Filtro por IPv6
             if (!empty($ipv6_busca)) {
-                $sql .= " AND cl.ipv6_prefix = $" . $param_count;
+                $sql .= " AND cl.ipv6_prefix = ?";
                 $params[] = $ipv6_busca;
-                $param_count++;
             }
             
             // Filtro por data/hora
-            $sql .= " AND c.data_hora BETWEEN $" . $param_count . " AND $" . ($param_count + 1);
+            $sql .= " AND c.data_hora BETWEEN ? AND ?";
             $params[] = $data_inicio;
             $params[] = $data_fim;
-            $param_count += 2;
             
             $sql .= " ORDER BY c.data_hora DESC LIMIT 1000";
             
@@ -1490,13 +1483,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $log_protocolo = $primeiro['protocolo'] ?? null;
             }
             
-            // SALVAR NA TABELA lgpd_audit - CORRIGIDO: tratar valores vazios como NULL
-            $ip_privado_sql = (!empty($ip_privado)) ? $ip_privado : null;
-            $ipv6_prefix_sql = (!empty($ipv6_prefix)) ? $ipv6_prefix : null;
-            $log_data_hora_sql = (!empty($log_data_hora)) ? $log_data_hora : null;
-            $ip_publico_sql = (!empty($ip_publico)) ? $ip_publico : null;
-            $porta_sql = (!empty($porta)) ? $porta : null;
-            $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
+            // SALVAR NA TABELA lgpd_audit - tratar valores vazios como NULL
+            $ip_publico_sql = !empty($ip_publico) ? $ip_publico : null;
+            $porta_sql = !empty($porta) ? (int)$porta : null;
+            $ip_privado_sql = !empty($ip_privado) ? $ip_privado : null;
+            $ipv6_prefix_sql = !empty($ipv6_prefix) ? $ipv6_prefix : null;
+            $log_data_hora_sql = !empty($log_data_hora) ? $log_data_hora : null;
+            $ip_origem = !empty($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : null;
             
             $stmt = $db->prepare("
                 INSERT INTO lgpd_audit (
@@ -1561,7 +1554,6 @@ include 'menu.php';
         label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
         input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
         input:focus { border-color: #667eea; outline: none; }
-        .required { color: #e74c3c; font-weight: bold; }
         .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn:hover { opacity: 0.9; }
         .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
@@ -1612,20 +1604,20 @@ include 'menu.php';
         <form method="POST" id="formConsulta">
             <div class="row">
                 <div class="form-group">
-                    <label>IPv4 Público</label>
-                    <input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.18" value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
+                    <label>IP Público</label>
+                    <input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.18" value="<?php echo htmlspecialchars($_POST['ip_publico'] ?? ''); ?>">
                 </div>
                 <div class="form-group">
                     <label>Porta Pública</label>
-                    <input type="number" name="porta" id="porta" placeholder="Ex: 51478" value="<?php echo $_POST['porta'] ?? ''; ?>">
+                    <input type="number" name="porta" id="porta" placeholder="Ex: 51478" value="<?php echo htmlspecialchars($_POST['porta'] ?? ''); ?>">
                     <div class="info-required">Obrigatório se informar IP Público</div>
                 </div>
             </div>
             <div class="row">
                 <div class="form-group">
-                    <label>IPv6 do Cliente <span style="color:#888;font-weight:normal;">(use IPv6)</span></label>
-                    <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:XXXX::/56" value="<?php echo $_POST['ipv6_busca'] ?? ''; ?>">
-                    <div class="info-required">Informe o IPv6 para consultar</div>
+                    <label>IPv6 do Cliente <span style="color:#888;font-weight:normal;">(ou use IP+Porta)</span></label>
+                    <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:XXXX::/56" value="<?php echo htmlspecialchars($_POST['ipv6_busca'] ?? ''); ?>">
+                    <div class="info-required">Informe o IP+Porta OU o IPv6 para consultar</div>
                 </div>
                 <div class="form-group">
                     <label>&nbsp;</label>
