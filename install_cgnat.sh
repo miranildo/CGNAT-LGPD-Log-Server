@@ -1395,6 +1395,7 @@ $log_protocolo = '';
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ip_publico']) && isset($_GET['porta'])) {
     $_POST['ip_publico'] = $_GET['ip_publico'];
     $_POST['porta'] = $_GET['porta'];
+    $_POST['ipv6_busca'] = $_GET['ipv6_busca'] ?? '';
     $_POST['data_inicio'] = $_GET['data_inicio'] ?? date('Y-m-d');
     $_POST['data_fim'] = $_GET['data_fim'] ?? date('Y-m-d');
     $_POST['hora_inicio'] = $_GET['hora_inicio'] ?? '00:00';
@@ -1414,11 +1415,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $motivo = $_POST['motivo'] ?? 'Consulta LGPD';
     $protocolo = $_POST['protocolo'] ?? '';
     
-    if ($ip_publico && $porta) {
+    // VALIDAÇÃO: Pelo menos IP+Público+Porta OU IPv6 deve ser preenchido
+    if (empty($ip_publico) && empty($ipv6_busca)) {
+        $mensagem = '⚠️ Preencha pelo menos o IP Público + Porta, ou o IPv6.';
+    } elseif (!empty($ip_publico) && empty($porta)) {
+        $mensagem = '⚠️ Se informar o IP Público, a Porta Pública é obrigatória.';
+    } else {
         try {
             $db = getDBConnection();
             
-            // CONSULTA COM JOIN PARA PEGAR O NOME DO CLIENTE E IPv6
+            // CONSTRUIR A CONSULTA DINAMICAMENTE
             $sql = "
                 SELECT 
                     c.data_hora,
@@ -1435,18 +1441,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     cl.ipv6_prefix
                 FROM cgnat_logs c
                 LEFT JOIN clientes cl ON c.login = cl.login
-                WHERE c.ip_publico = ?::inet
-                AND c.porta_publica = ?
-                AND c.data_hora BETWEEN ? AND ?
+                WHERE 1=1
             ";
             
-            $params = [$ip_publico, $porta, $data_inicio, $data_fim];
+            $params = [];
+            $param_count = 1;
             
-            // Adicionar filtro IPv6 se preenchido
-            if (!empty($ipv6_busca)) {
-                $sql .= " AND cl.ipv6_prefix = ?";
-                $params[] = $ipv6_busca;
+            // Filtro por IP Público e Porta
+            if (!empty($ip_publico) && !empty($porta)) {
+                $sql .= " AND c.ip_publico = $" . $param_count . "::inet";
+                $params[] = $ip_publico;
+                $param_count++;
+                
+                $sql .= " AND c.porta_publica = $" . $param_count;
+                $params[] = $porta;
+                $param_count++;
             }
+            
+            // Filtro por IPv6
+            if (!empty($ipv6_busca)) {
+                $sql .= " AND cl.ipv6_prefix = $" . $param_count;
+                $params[] = $ipv6_busca;
+                $param_count++;
+            }
+            
+            // Filtro por data/hora
+            $sql .= " AND c.data_hora BETWEEN $" . $param_count . " AND $" . ($param_count + 1);
+            $params[] = $data_inicio;
+            $params[] = $data_fim;
+            $param_count += 2;
             
             $sql .= " ORDER BY c.data_hora DESC LIMIT 1000";
             
@@ -1493,8 +1516,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $stmt->execute([
                 $_SESSION['usuario'],
-                $ip_publico,
-                $porta,
+                $ip_publico ?: null,
+                $porta ?: null,
                 $motivo,
                 $protocolo,
                 $ip_privado_sql,
@@ -1514,8 +1537,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {
             $mensagem = "❌ Erro: " . $e->getMessage();
         }
-    } else {
-        $mensagem = '⚠️ Preencha o IP Público e a Porta Pública.';
     }
 }
 
@@ -1537,6 +1558,7 @@ include 'menu.php';
         label { display: block; font-weight: 600; margin-bottom: 5px; color: #555; }
         input { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
         input:focus { border-color: #667eea; outline: none; }
+        .required { color: #e74c3c; font-weight: bold; }
         .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 15px 40px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; }
         .btn:hover { opacity: 0.9; }
         .btn-danger { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
@@ -1558,6 +1580,7 @@ include 'menu.php';
         .client-info h3 { color: #004085; margin: 0; }
         .client-info p { margin-top: 5px; color: #555; font-size: 14px; }
         .text-muted { color: #999; }
+        .info-required { font-size: 12px; color: #888; margin-top: 5px; }
         @media (max-width: 768px) { .row { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -1586,19 +1609,20 @@ include 'menu.php';
         <form method="POST" id="formConsulta">
             <div class="row">
                 <div class="form-group">
-                    <label>IP Público *</label>
-                    <input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.18" required value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
+                    <label>IP Público</label>
+                    <input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.18" value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
                 </div>
                 <div class="form-group">
-                    <label>Porta Pública *</label>
-                    <input type="number" name="porta" id="porta" placeholder="Ex: 51478" required value="<?php echo $_POST['porta'] ?? ''; ?>">
+                    <label>Porta Pública</label>
+                    <input type="number" name="porta" id="porta" placeholder="Ex: 51478" value="<?php echo $_POST['porta'] ?? ''; ?>">
+                    <div class="info-required">Obrigatório se informar IP Público</div>
                 </div>
             </div>
             <div class="row">
                 <div class="form-group">
-                    <label>IPv6 do Cliente</label>
+                    <label>IPv6 do Cliente <span style="color:#888;font-weight:normal;">(ou use IP+Porta)</span></label>
                     <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:XXXX::/56" value="<?php echo $_POST['ipv6_busca'] ?? ''; ?>">
-                    <small style="color:#888;font-size:11px;">Filtro opcional - busque pelo prefixo IPv6 do cliente</small>
+                    <div class="info-required">Informe o IP+Porta OU o IPv6 para consultar</div>
                 </div>
                 <div class="form-group">
                     <label>&nbsp;</label>
@@ -2242,6 +2266,7 @@ cat > /usr/local/bin/sync_ipv6_cisco.sh << EOF
 # Script para sincronizar IPv6 do Cisco ASR com a tabela clientes
 
 echo "\$(date): Iniciando sincronização IPv6 do Cisco..."
+echo "⏳ Aguarde, estamos sincronizando os dados com o Cisco..."
 
 # Usando as variáveis do script principal
 CISCO_IP="${CISCO_IP}"
@@ -2250,19 +2275,25 @@ CISCO_PASS="${CISCO_PASS}"
 TMP_FILE="/tmp/ipv6_binding_\$\$.txt"
 
 # Coletar dados do Cisco
-sshpass -p "\${CISCO_PASS}" ssh \
+sshpass -p "\$CISCO_PASS" ssh \
     -o KexAlgorithms=+diffie-hellman-group14-sha1 \
     -o HostKeyAlgorithms=+ssh-rsa \
     -o PubkeyAcceptedAlgorithms=+ssh-rsa \
     -o StrictHostKeyChecking=no \
-    "\${CISCO_USER}@\${CISCO_IP}" "show ipv6 dhcp binding | include Username|Prefix:" > "\${TMP_FILE}"
+    "\$CISCO_USER@\$CISCO_IP" "show ipv6 dhcp binding | include Username|Prefix:" > "\$TMP_FILE" 2>/dev/null
 
-if [ ! -s "\${TMP_FILE}" ]; then
-    echo "ERRO: Não foi possível coletar dados do Cisco"
+if [ ! -s "\$TMP_FILE" ]; then
+    echo "❌ ERRO: Não foi possível coletar dados do Cisco"
+    echo "Verifique:"
+    echo "  - O Cisco ASR está acessível em \$CISCO_IP?"
+    echo "  - As credenciais estão corretas?"
+    echo "  - O comando 'show ipv6 dhcp binding' funciona?"
+    rm -f "\$TMP_FILE"
     exit 1
 fi
 
-echo "Processando dados do Cisco..."
+echo "📡 Dados coletados, processando..."
+
 UPDATED=0
 login=""
 prefix=""
@@ -2281,7 +2312,8 @@ while IFS= read -r line; do
         prefix=\$(echo "\$line" | sed 's/^Prefix: //' | awk '{print \$1}' | tr -d '\r')
         
         if [ ! -z "\$login" ] && [ ! -z "\$prefix" ]; then
-            sudo -u postgres psql -d cgnat_logs << PSQL
+            # Supressão do output do PostgreSQL
+            sudo -u postgres psql -d cgnat_logs -q << PSQL 2>/dev/null
 UPDATE clientes 
 SET ipv6_prefix = '\$prefix',
     ipv6_atualizado = NOW()
@@ -2292,10 +2324,10 @@ PSQL
             fi
         fi
     fi
-done < "\${TMP_FILE}"
+done < "\$TMP_FILE"
 
-echo "\$(date): Sincronização IPv6 concluída. Atualizados: \$UPDATED"
-rm -f "\${TMP_FILE}"
+echo "✅ Sincronização IPv6 concluída. Clientes atualizados: \$UPDATED"
+rm -f "\$TMP_FILE"
 EOF
 
 chmod +x /usr/local/bin/sync_ipv6_cisco.sh
