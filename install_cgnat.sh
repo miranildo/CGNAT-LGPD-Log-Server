@@ -1117,9 +1117,12 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 </div>
 MENU_PHP
 
-# 12.7 INDEX.PHP
+# ============================================================
+# 12.7 INDEX.PHP (COM ATUALIZAÇÃO AUTOMÁTICA)
+# ============================================================
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
 <?php
+require_once 'headers.php';
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
@@ -1143,89 +1146,28 @@ include 'menu.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CGNAT LGPD - Início</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .card-welcome {
-            background: white;
-            border-radius: 10px;
-            padding: 40px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }
-        .card-welcome h1 {
-            color: #333;
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-        .card-welcome p {
-            color: #666;
-            font-size: 16px;
-        }
-        .card-welcome .user {
-            color: #667eea;
-            font-weight: bold;
-        }
-        .cards {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .card {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .card .numero {
-            font-size: 32px;
-            font-weight: bold;
-            color: #667eea;
-        }
-        .card .label {
-            color: #888;
-            margin-top: 5px;
-            font-size: 14px;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .card-welcome { background: white; border-radius: 10px; padding: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 30px; }
+        .card-welcome h1 { color: #333; font-size: 28px; margin-bottom: 10px; }
+        .card-welcome p { color: #666; font-size: 16px; }
+        .card-welcome .user { color: #667eea; font-weight: bold; }
+        .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
+        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+        .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
+        .card .label { color: #888; margin-top: 5px; font-size: 14px; }
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
-        .btn-consulta {
-            display: inline-block;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 18px 50px;
-            border-radius: 8px;
-            font-size: 18px;
-            font-weight: 600;
-            cursor: pointer;
-            text-decoration: none;
-            transition: transform 0.2s;
-            margin-top: 10px;
-        }
-        .btn-consulta:hover {
-            transform: scale(1.02);
-        }
-        .actions {
-            text-align: center;
-            margin-top: 20px;
-        }
-        @media (max-width: 768px) {
-            .cards {
-                grid-template-columns: 1fr 1fr;
-            }
-        }
+        .btn-consulta { display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 18px 50px; border-radius: 8px; font-size: 18px; font-weight: 600; cursor: pointer; text-decoration: none; transition: transform 0.2s; margin-top: 10px; }
+        .btn-consulta:hover { transform: scale(1.02); }
+        .actions { text-align: center; margin-top: 20px; }
+        @media (max-width: 768px) { .cards { grid-template-columns: 1fr 1fr; } }
     </style>
 </head>
 <body>
@@ -1239,28 +1181,23 @@ include 'menu.php';
         </div>
         
         <div class="cards">
-            <div class="card card-verde">
-                <div class="numero"><?php echo $consultas_hoje; ?></div>
-                <div class="label">Consultas Hoje</div>
-            </div>
-            <div class="card">
-                <div class="numero"><?php echo number_format($total_logs); ?></div>
-                <div class="label">Total de Logs CGNAT</div>
-            </div>
-            <div class="card card-amarelo">
-                <div class="numero"><?php echo number_format($total_clientes); ?></div>
-                <div class="label">Clientes Cadastrados</div>
-            </div>
-            <div class="card card-vermelho">
-                <div class="numero"><?php echo date('d/m/Y'); ?></div>
-                <div class="label">Data Atual</div>
-            </div>
+            <div class="card card-verde"><div class="numero"><?php echo $consultas_hoje; ?></div><div class="label">Consultas Hoje</div></div>
+            <div class="card"><div class="numero" id="total_logs"><?php echo number_format($total_logs); ?></div><div class="label">Total de Logs CGNAT</div></div>
+            <div class="card card-amarelo"><div class="numero"><?php echo number_format($total_clientes); ?></div><div class="label">Clientes Cadastrados</div></div>
+            <div class="card card-vermelho"><div class="numero"><?php echo date('d/m/Y'); ?></div><div class="label">Data Atual</div></div>
         </div>
         
         <div class="actions">
             <a href="consultar.php" class="btn-consulta">🔍 Ir para Consultas</a>
         </div>
     </div>
+    
+    <!-- Atualização automática a cada 30 segundos -->
+    <script>
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+    </script>
 </body>
 </html>
 INDEX_PHP
@@ -2341,6 +2278,14 @@ print_success "Headers anti-cache adicionados em todos os arquivos PHP"
 # ============================================================
 print_header "13. CONFIGURANDO RSYSLOG"
 
+# Garantir que o diretório existe
+mkdir -p /var/run/cgnat
+chmod 755 /var/run/cgnat
+
+# Criar pipe com buffer otimizado
+mkfifo /var/run/cgnat.pipe 2>/dev/null || true
+chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
+
 cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
 # Otimizações para alta velocidade
 $MaxMessageSize 64k
@@ -2357,10 +2302,6 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
     stop
 }
 RSYSLOG
-
-# Criar pipe com buffer otimizado
-mkfifo /var/run/cgnat.pipe 2>/dev/null || true
-chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
 
 systemctl restart rsyslog 2>/dev/null || true
 print_success "Rsyslog configurado com otimizações"
