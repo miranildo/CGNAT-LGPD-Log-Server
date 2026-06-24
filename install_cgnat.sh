@@ -767,6 +767,19 @@ if (session_status() == PHP_SESSION_NONE) {
 ?>
 CONFIG_PHP
 
+# ============================================================
+# 12.1.1 HEADERS.PHP (ANTI-CACHE) - NOVO
+# ============================================================
+cat > /var/www/html/cgnat/headers.php << 'HEADERS_PHP'
+<?php
+// Headers anti-cache para navegadores
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Cache-Control: post-check=0, pre-check=0', false);
+header('Pragma: no-cache');
+header('Expires: Thu, 01 Jan 1970 00:00:00 GMT');
+?>
+HEADERS_PHP
+
 # 12.2 FUNCTIONS.PHP
 cat > /var/www/html/cgnat/functions.php << 'FUNCTIONS_PHP'
 <?php
@@ -1252,9 +1265,12 @@ include 'menu.php';
 </html>
 INDEX_PHP
 
-# 12.8 DASHBOARD.PHP
+# ============================================================
+# 12.8 DASHBOARD.PHP (COM ATUALIZAÇÃO AUTOMÁTICA)
+# ============================================================
 cat > /var/www/html/cgnat/dashboard.php << 'DASHBOARD_PHP'
 <?php
+require_once 'headers.php';
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
@@ -1320,6 +1336,9 @@ include 'menu.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard CGNAT</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
@@ -1437,7 +1456,7 @@ include 'menu.php';
             <div class="card card-verde"><div class="numero"><?php echo $hoje; ?></div><div class="label">Consultas Hoje</div></div>
             <div class="card card-amarelo"><div class="numero"><?php echo $semana; ?></div><div class="label">Consultas (7 dias)</div></div>
             <div class="card"><div class="numero"><?php echo $mes; ?></div><div class="label">Consultas (30 dias)</div></div>
-            <div class="card card-vermelho"><div class="numero"><?php echo number_format($total_logs); ?></div><div class="label">Total Logs CGNAT</div></div>
+            <div class="card card-vermelho"><div class="numero" id="total_logs"><?php echo number_format($total_logs); ?></div><div class="label">Total Logs CGNAT</div></div>
         </div>
 
         <div style="margin-top:30px;">
@@ -1462,8 +1481,8 @@ include 'menu.php';
                             <tr>
                                 <td style="white-space:nowrap;"><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
                                 <td><?php echo htmlspecialchars($row['usuario']); ?></td>
-                                <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
-                                <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                                <td><strong><?php echo htmlspecialchars($row['ip_consultado'] ?? '-'); ?></strong></td>
+                                <td><?php echo htmlspecialchars($row['porta_consultada'] ?? '-'); ?></td>
                                 <td>
                                     <?php if (!empty($row['cliente_nome'])): ?>
                                         <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
@@ -1499,6 +1518,13 @@ include 'menu.php';
             </div>
         </div>
     </div>
+    
+    <!-- Atualização automática a cada 15 segundos -->
+    <script>
+    setTimeout(function() {
+        location.reload();
+    }, 15000);
+    </script>
 </body>
 </html>
 DASHBOARD_PHP
@@ -2293,6 +2319,22 @@ include 'menu.php';
 ADMIN_PHP
 
 print_success "TODOS os 11 arquivos PHP criados com sucesso!"
+
+# ============================================================
+# 12.12 ADICIONAR HEADERS EM TODOS OS ARQUIVOS PHP
+# ============================================================
+print_header "12.12. ADICIONANDO HEADERS ANTI-CACHE"
+
+for arquivo in /var/www/html/cgnat/{index,dashboard,consultar,relatorios,login,admin,auth,functions}.php; do
+    if [ -f "$arquivo" ]; then
+        if ! grep -q "require_once 'headers.php';" "$arquivo"; then
+            sed -i 's/^<?php/<?php\nrequire_once '\''headers.php'\'';/' "$arquivo"
+            print_info "Headers adicionado em $(basename $arquivo)"
+        fi
+    fi
+done
+
+print_success "Headers anti-cache adicionados em todos os arquivos PHP"
 
 # ============================================================
 # 13. CONFIGURAR RSYSLOG (COM OTIMIZAÇÕES)
