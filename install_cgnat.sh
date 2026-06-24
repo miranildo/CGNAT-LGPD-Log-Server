@@ -1142,7 +1142,7 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 MENU_PHP
 
 # ============================================================
-# 12.7 INDEX.PHP (COM INDICADOR DE DISCO ESTILIZADO)
+# 12.7 INDEX.PHP (COM CARD DE DISCO AO LADO DO TÍTULO)
 # ============================================================
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
 <?php
@@ -1195,7 +1195,7 @@ include 'menu.php';
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
 
-        /* Header com indicador de disco */
+        /* Header com boas-vindas e card de disco lado a lado */
         .header-index {
             display: flex;
             justify-content: space-between;
@@ -1227,55 +1227,56 @@ include 'menu.php';
             margin-top: 2px;
         }
 
-        /* Card do disco */
-        .disco-card {
+        /* Card de disco no header (mesmo estilo dos cards) */
+        .disco-card-header {
             background: #f8f9fa;
             border-radius: 10px;
             padding: 12px 20px;
-            min-width: 200px;
+            min-width: 180px;
             border: 1px solid #e9ecef;
-            display: flex;
-            align-items: center;
-            gap: 12px;
+            text-align: center;
+            flex-shrink: 0;
         }
-        .disco-card .icon {
-            font-size: 24px;
+        .disco-card-header .numero {
+            font-size: 22px;
+            font-weight: bold;
             color: #667eea;
         }
-        .disco-card .info .uso {
-            font-size: 18px;
-            font-weight: 700;
-            color: #333;
+        .disco-card-header .numero .total {
+            font-size: 16px;
+            color: #bbb;
+            font-weight: normal;
         }
-        .disco-card .info .total {
-            font-size: 14px;
-            color: #888;
-        }
-        .disco-card .barra {
-            width: 80px;
+        .disco-card-header .barra {
+            width: 100%;
             height: 6px;
             background: #e9ecef;
             border-radius: 3px;
             overflow: hidden;
-            margin: 4px 0;
+            margin: 6px 0 4px 0;
         }
-        .disco-card .barra-fill {
+        .disco-card-header .barra-fill {
             height: 100%;
             border-radius: 3px;
-            transition: width 0.3s;
+            transition: width 0.5s;
         }
-        .disco-card .barra-fill.verde { background: #27ae60; }
-        .disco-card .barra-fill.amarelo { background: #f39c12; }
-        .disco-card .barra-fill.vermelho { background: #e74c3c; }
-        .disco-card .detalhes {
+        .disco-card-header .barra-fill.verde { background: #27ae60; }
+        .disco-card-header .barra-fill.amarelo { background: #f39c12; }
+        .disco-card-header .barra-fill.vermelho { background: #e74c3c; }
+        .disco-card-header .label {
+            color: #888;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+        .disco-card-header .detalhes {
             font-size: 11px;
             color: #aaa;
-            display: flex;
-            gap: 8px;
+            margin-top: 2px;
         }
-        .disco-card .detalhes .db {
-            border-left: 1px solid #ddd;
+        .disco-card-header .detalhes .db {
+            border-left: 1px solid #eee;
             padding-left: 8px;
+            margin-left: 6px;
         }
 
         /* Cards de métricas */
@@ -1287,20 +1288,24 @@ include 'menu.php';
         }
         .card {
             background: white;
-            padding: 25px;
+            padding: 20px 15px;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             text-align: center;
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
         }
         .card .numero {
-            font-size: 32px;
+            font-size: 28px;
             font-weight: bold;
             color: #667eea;
         }
         .card .label {
             color: #888;
             margin-top: 5px;
-            font-size: 14px;
+            font-size: 13px;
         }
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
@@ -1326,13 +1331,16 @@ include 'menu.php';
         @media (max-width: 768px) {
             .cards { grid-template-columns: 1fr 1fr; }
             .header-index { flex-direction: column; align-items: stretch; }
-            .disco-card { justify-content: center; }
+            .disco-card-header { align-self: stretch; }
+        }
+        @media (max-width: 480px) {
+            .cards { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <!-- Header com boas-vindas e indicador de disco -->
+        <!-- Header: Boas-vindas + Card de Disco lado a lado -->
         <div class="header-index">
             <div class="welcome">
                 <h1>👋 Bem-vindo, <span class="user"><?php echo htmlspecialchars($_SESSION['nome_completo']); ?></span></h1>
@@ -1340,27 +1348,27 @@ include 'menu.php';
                 <div class="perfil">Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong></div>
             </div>
 
-            <!-- Card de Disco (estilizado) -->
-            <div class="disco-card">
-                <div class="icon">💾</div>
-                <div class="info">
-                    <div class="uso"><?php echo $disco_usado; ?> <span class="total">/ <?php echo $disco_total; ?></span></div>
-                    <div class="barra">
-                        <?php 
-                        $percentual = (int)str_replace('%', '', $disco_uso);
-                        $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
-                        ?>
-                        <div class="barra-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
-                    </div>
-                    <div class="detalhes">
-                        <span>📊 <?php echo $disco_uso; ?> usado</span>
-                        <span class="db">🗄️ DB: <?php echo $tamanho_db; ?></span>
-                    </div>
+            <!-- Card de Disco (mesmo estilo dos cards) -->
+            <div class="disco-card-header">
+                <div class="numero">
+                    <?php echo $disco_usado; ?> <span class="total">/ <?php echo $disco_total; ?></span>
+                </div>
+                <div class="barra">
+                    <?php 
+                    $percentual = (int)str_replace('%', '', $disco_uso);
+                    $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
+                    ?>
+                    <div class="barra-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
+                </div>
+                <div class="label">💾 Uso de Disco</div>
+                <div class="detalhes">
+                    <span><?php echo $disco_uso; ?></span>
+                    <span class="db">DB: <?php echo $tamanho_db; ?></span>
                 </div>
             </div>
         </div>
 
-        <!-- Cards de métricas -->
+        <!-- Cards de métricas (4 colunas) -->
         <div class="cards">
             <div class="card card-verde">
                 <div class="numero"><?php echo $consultas_hoje; ?></div>
