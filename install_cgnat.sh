@@ -1490,9 +1490,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $log_protocolo = $primeiro['protocolo'] ?? null;
             }
             
-            // SALVAR NA TABELA lgpd_audit COM TODAS AS INFORMAÇÕES
+            // SALVAR NA TABELA lgpd_audit - CORRIGIDO: tratar valores vazios como NULL
             $ip_privado_sql = (!empty($ip_privado)) ? $ip_privado : null;
+            $ipv6_prefix_sql = (!empty($ipv6_prefix)) ? $ipv6_prefix : null;
             $log_data_hora_sql = (!empty($log_data_hora)) ? $log_data_hora : null;
+            $ip_publico_sql = (!empty($ip_publico)) ? $ip_publico : null;
+            $porta_sql = (!empty($porta)) ? $porta : null;
             $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
             
             $stmt = $db->prepare("
@@ -1512,17 +1515,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     resultado_registros,
                     ip_origem_consulta,
                     user_agent
-                ) VALUES (?, ?, ?, ?, ?, ?::inet, ?, ?::inet, ?, ?, ?, ?, ?, ?::inet, ?)
+                ) VALUES (?, ?::inet, ?, ?, ?, ?::inet, ?, ?::inet, ?, ?, ?, ?, ?, ?::inet, ?)
             ");
             $stmt->execute([
                 $_SESSION['usuario'],
-                $ip_publico ?: null,
-                $porta ?: null,
+                $ip_publico_sql,
+                $porta_sql,
                 $motivo,
                 $protocolo,
                 $ip_privado_sql,
                 $cliente_nome,
-                $ipv6_prefix,
+                $ipv6_prefix_sql,
                 $log_data_hora_sql,
                 $log_acao,
                 $log_destino,
@@ -1609,7 +1612,7 @@ include 'menu.php';
         <form method="POST" id="formConsulta">
             <div class="row">
                 <div class="form-group">
-                    <label>IP Público</label>
+                    <label>IPv4 Público</label>
                     <input type="text" name="ip_publico" id="ip_publico" placeholder="Ex: 190.196.242.18" value="<?php echo $_POST['ip_publico'] ?? ''; ?>">
                 </div>
                 <div class="form-group">
@@ -1620,9 +1623,9 @@ include 'menu.php';
             </div>
             <div class="row">
                 <div class="form-group">
-                    <label>IPv6 do Cliente <span style="color:#888;font-weight:normal;">(ou use IP+Porta)</span></label>
+                    <label>IPv6 do Cliente <span style="color:#888;font-weight:normal;">(use IPv6)</span></label>
                     <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:XXXX::/56" value="<?php echo $_POST['ipv6_busca'] ?? ''; ?>">
-                    <div class="info-required">Informe o IP+Porta OU o IPv6 para consultar</div>
+                    <div class="info-required">Informe o IPv6 para consultar</div>
                 </div>
                 <div class="form-group">
                     <label>&nbsp;</label>
