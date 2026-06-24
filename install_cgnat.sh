@@ -2,7 +2,7 @@
 # ============================================================
 # SCRIPT DE INSTALAÇÃO - SISTEMA CGNAT LGPD
 # ============================================================
-# Versão: 1.0 - Debian 12 x64
+# Versão: 1.0 - Debian 12 e 13 x64
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
 # Router: Cisco ASR-1001X
 # ============================================================
