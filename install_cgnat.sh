@@ -1926,12 +1926,33 @@ include 'menu.php';
                 </tr>
             </thead>
             <tbody>
-                <?php if ($ultimas): foreach ($ultimas as $row): ?>
+                <?php if ($ultimas): foreach ($ultimas as $row): 
+                    // Construir o link de reabrir corretamente
+                    $link_params = [];
+                    if (!empty($row['ip_consultado']) && !empty($row['porta_consultada'])) {
+                        $link_params['ip_publico'] = $row['ip_consultado'];
+                        $link_params['porta'] = $row['porta_consultada'];
+                    } elseif (!empty($row['ipv6_cliente'])) {
+                        $link_params['ipv6_busca'] = $row['ipv6_cliente'];
+                    }
+                    $link_params['data_inicio'] = date('Y-m-d', strtotime($row['data_consulta']));
+                    $link_params['data_fim'] = date('Y-m-d', strtotime($row['data_consulta']));
+                    $link_params['motivo'] = 'Reabertura de consulta';
+                    $link_params['protocolo'] = $row['protocolo_judicial'] ?? '';
+                    
+                    $link = 'consultar.php?' . http_build_query($link_params);
+                ?>
                 <tr>
                     <td><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
                     <td><?php echo htmlspecialchars($row['usuario']); ?></td>
-                    <td><strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong></td>
-                    <td><?php echo htmlspecialchars($row['porta_consultada']); ?></td>
+                    <td>
+                        <?php if (!empty($row['ip_consultado'])): ?>
+                            <strong><?php echo htmlspecialchars($row['ip_consultado']); ?></strong>
+                        <?php else: ?>
+                            <span class="text-muted">-</span>
+                        <?php endif; ?>
+                    </td>
+                    <td><?php echo htmlspecialchars($row['porta_consultada'] ?? '-'); ?></td>
                     <td>
                         <?php if (!empty($row['cliente_nome'])): ?>
                             <span class="badge-info"><?php echo htmlspecialchars($row['cliente_nome']); ?></span>
@@ -1949,7 +1970,7 @@ include 'menu.php';
                     </td>
                     <td><?php echo htmlspecialchars($row['motivo']); ?></td>
                     <td>
-                        <a href="consultar.php?ip_publico=<?php echo urlencode($row['ip_consultado']); ?>&porta=<?php echo urlencode($row['porta_consultada']); ?>&data_inicio=<?php echo date('Y-m-d', strtotime($row['data_consulta'])); ?>&data_fim=<?php echo date('Y-m-d', strtotime($row['data_consulta'])); ?>" class="btn-sm">🔍 Reabrir</a>
+                        <a href="<?php echo $link; ?>" class="btn-sm">🔍 Reabrir</a>
                     </td>
                 </tr>
                 <?php endforeach; else: ?>
