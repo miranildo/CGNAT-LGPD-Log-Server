@@ -2015,14 +2015,15 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
-# Script de Sincronização MK-AUTH (CORRIGIDO - MANTÉM IPv6)
-cat > /usr/local/bin/sync_mkauth.sh << 'EOF'
+# Script de Sincronização MK-AUTH (MANTENDO O PADRÃO QUE FUNCIONA)
+cat > /usr/local/bin/sync_mkauth.sh << EOF
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
 # Mantém os campos ipv6_prefix, ipv6_address e ipv6_atualizado
 
-echo "$(date): Iniciando sincronização com MK-AUTH..."
+echo "\$(date): Iniciando sincronização com MK-AUTH..."
 
+# Usando as variáveis do script principal
 MK_AUTH_IP="${MK_AUTH_IP}"
 MK_AUTH_USER="${MK_AUTH_USER}"
 MK_AUTH_PASS="${MK_AUTH_PASS}"
@@ -2030,17 +2031,17 @@ DB_USER="root"
 DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
 
-TMP_FILE="/tmp/radacct_export_$$.csv"
+TMP_FILE="/tmp/radacct_export_\$\$.csv"
 
-echo "Conectando a ${MK_AUTH_IP}..."
+echo "Conectando a \${MK_AUTH_IP}..."
 
-sshpass -p "${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR ${MK_AUTH_USER}@${MK_AUTH_IP} \
-"mysql -u ${DB_USER} -p${DB_PASS} -B -N -e '
+sshpass -p "\${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \${MK_AUTH_USER}@\${MK_AUTH_IP} \
+"mysql -u \${DB_USER} -p\${DB_PASS} -B -N -e '
 SELECT 
     login,
     nome,
     ip
-FROM ${DB_NAME}.sis_cliente
+FROM \${DB_NAME}.sis_cliente
 WHERE cli_ativado = \"s\"
 AND ip IS NOT NULL
 AND ip != \"\"
@@ -2049,15 +2050,15 @@ SELECT
     username,
     nome,
     ip
-FROM ${DB_NAME}.sis_adicional
+FROM \${DB_NAME}.sis_adicional
 WHERE bloqueado = \"nao\"
 AND ip IS NOT NULL
 AND ip != \"\"
-'" > "${TMP_FILE}"
+'" > "\${TMP_FILE}"
 
-if [ -s "${TMP_FILE}" ]; then
-    CLIENTES=$(wc -l < "${TMP_FILE}")
-    echo "Dados exportados do MK-AUTH: ${CLIENTES} clientes"
+if [ -s "\${TMP_FILE}" ]; then
+    CLIENTES=\$(wc -l < "\${TMP_FILE}")
+    echo "Dados exportados do MK-AUTH: \${CLIENTES} clientes"
     
     sudo -u postgres psql -d cgnat_logs << SQL
     -- Criar tabela temporária com os dados novos
@@ -2068,7 +2069,7 @@ if [ -s "${TMP_FILE}" ]; then
     );
     
     COPY temp_clientes (login, nome, ip_privado)
-    FROM '${TMP_FILE}'
+    FROM '\${TMP_FILE}'
     DELIMITER E'\t'
     CSV;
     
@@ -2098,88 +2099,14 @@ if [ -s "${TMP_FILE}" ]; then
     SELECT 'Clientes sincronizados: ' || COUNT(*) as status FROM clientes;
 SQL
     
-    rm -f "${TMP_FILE}"
+    rm -f "\${TMP_FILE}"
 else
     echo "ERRO: Não foi possível exportar dados do MK-AUTH"
 fi
 
-echo "$(date): Sincronização concluída."
+echo "\$(date): Sincronização concluída."
 EOF
 chmod +x /usr/local/bin/sync_mkauth.sh
-
-# Script de Monitoramento de Disco
-cat > /usr/local/bin/monitor_disco.sh << 'MONITOR'
-#!/bin/bash
-echo "=== MONITORAMENTO DE DISCO CGNAT ==="
-echo "Data: $(date)"
-echo ""
-echo "📊 Tamanho do banco:"
-sudo -u postgres psql -d cgnat_logs -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho;" 2>/dev/null || echo "Erro ao consultar banco"
-echo ""
-echo "💾 Espaço em disco:"
-df -h /
-echo ""
-echo "📁 Backups:"
-du -sh /backup/cgnat/ 2>/dev/null || echo "Nenhum backup"
-MONITOR
-chmod +x /usr/local/bin/monitor_disco.sh
-
-# Script para criar partições automaticamente
-cat > /usr/local/bin/create_cgnat_partition.sh << 'PART'
-#!/bin/bash
-# Script para criar partições CGNAT automaticamente
-
-echo "$(date): Criando partições CGNAT..."
-
-sudo -u postgres psql -d cgnat_logs << 'SQL'
-DO $$
-DECLARE
-    mes_atual DATE;
-    mes_seguinte DATE;
-    nome_particao TEXT;
-    data_inicio TEXT;
-    data_fim TEXT;
-    i INTEGER;
-BEGIN
-    FOR i IN 0..5 LOOP
-        mes_atual := date_trunc('month', CURRENT_DATE + (i || ' months')::INTERVAL);
-        mes_seguinte := mes_atual + INTERVAL '1 month';
-        data_inicio := to_char(mes_atual, 'YYYY-MM-DD');
-        data_fim := to_char(mes_seguinte, 'YYYY-MM-DD');
-        nome_particao := 'cgnat_logs_' || to_char(mes_atual, 'YYYY_MM');
-        
-        IF NOT EXISTS (
-            SELECT 1 FROM pg_tables 
-            WHERE tablename = nome_particao
-        ) THEN
-            EXECUTE format('
-                CREATE TABLE %I PARTITION OF cgnat_logs
-                FOR VALUES FROM (%L) TO (%L)
-            ', nome_particao, data_inicio, data_fim);
-            
-            EXECUTE format('
-                CREATE INDEX %I ON %I(ip_publico)
-            ', 'idx_' || nome_particao || '_ip_pub', nome_particao);
-            
-            EXECUTE format('
-                CREATE INDEX %I ON %I(ip_privado)
-            ', 'idx_' || nome_particao || '_ip_priv', nome_particao);
-            
-            EXECUTE format('
-                CREATE INDEX %I ON %I(data_hora)
-            ', 'idx_' || nome_particao || '_data', nome_particao);
-            
-            RAISE NOTICE 'Partição % criada com sucesso', nome_particao;
-        END IF;
-    END LOOP;
-END $$;
-SQL
-
-echo "$(date): Partições criadas com sucesso."
-PART
-chmod +x /usr/local/bin/create_cgnat_partition.sh
-
-print_success "Scripts criados"
 
 # ============================================================
 # 15.5. EXECUTAR SINCRONIZAÇÃO INICIAL
@@ -2207,26 +2134,27 @@ print_success "Sincronização inicial finalizada"
 # ============================================================
 print_header "15.6. CRIANDO SCRIPT DE SINCRONIZAÇÃO IPv6"
 
-cat > /usr/local/bin/sync_ipv6_cisco.sh << 'EOF'
+cat > /usr/local/bin/sync_ipv6_cisco.sh << EOF
 #!/bin/bash
 # Script para sincronizar IPv6 do Cisco ASR com a tabela clientes
 
-echo "$(date): Iniciando sincronização IPv6 do Cisco..."
+echo "\$(date): Iniciando sincronização IPv6 do Cisco..."
 
+# Usando as variáveis do script principal
 CISCO_IP="${CISCO_IP}"
 CISCO_USER="${CISCO_USER}"
 CISCO_PASS="${CISCO_PASS}"
-TMP_FILE="/tmp/ipv6_binding_$$.txt"
+TMP_FILE="/tmp/ipv6_binding_\$\$.txt"
 
 # Coletar dados do Cisco
-sshpass -p "$CISCO_PASS" ssh \
+sshpass -p "\${CISCO_PASS}" ssh \
     -o KexAlgorithms=+diffie-hellman-group14-sha1 \
     -o HostKeyAlgorithms=+ssh-rsa \
     -o PubkeyAcceptedAlgorithms=+ssh-rsa \
     -o StrictHostKeyChecking=no \
-    "$CISCO_USER@$CISCO_IP" "show ipv6 dhcp binding | include Username|Prefix:" > "$TMP_FILE"
+    "\${CISCO_USER}@\${CISCO_IP}" "show ipv6 dhcp binding | include Username|Prefix:" > "\${TMP_FILE}"
 
-if [ ! -s "$TMP_FILE" ]; then
+if [ ! -s "\${TMP_FILE}" ]; then
     echo "ERRO: Não foi possível coletar dados do Cisco"
     exit 1
 fi
@@ -2238,33 +2166,33 @@ prefix=""
 
 while IFS= read -r line; do
     # Remove espaços no início e no final
-    line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\r')
+    line=\$(echo "\$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//' | tr -d '\r')
     
     # Se encontrar "Username :"
-    if echo "$line" | grep -q "^Username :"; then
-        login=$(echo "$line" | sed 's/^Username : //' | tr -d '\r')
+    if echo "\$line" | grep -q "^Username :"; then
+        login=\$(echo "\$line" | sed 's/^Username : //' | tr -d '\r')
     fi
     
     # Se encontrar "Prefix:"
-    if echo "$line" | grep -q "^Prefix:"; then
-        prefix=$(echo "$line" | sed 's/^Prefix: //' | awk '{print $1}' | tr -d '\r')
+    if echo "\$line" | grep -q "^Prefix:"; then
+        prefix=\$(echo "\$line" | sed 's/^Prefix: //' | awk '{print \$1}' | tr -d '\r')
         
-        if [ ! -z "$login" ] && [ ! -z "$prefix" ]; then
+        if [ ! -z "\$login" ] && [ ! -z "\$prefix" ]; then
             sudo -u postgres psql -d cgnat_logs << PSQL
 UPDATE clientes 
-SET ipv6_prefix = '$prefix',
+SET ipv6_prefix = '\$prefix',
     ipv6_atualizado = NOW()
-WHERE login = '$login';
+WHERE login = '\$login';
 PSQL
-            if [ $? -eq 0 ]; then
-                UPDATED=$((UPDATED + 1))
+            if [ \$? -eq 0 ]; then
+                UPDATED=\$((UPDATED + 1))
             fi
         fi
     fi
-done < "$TMP_FILE"
+done < "\${TMP_FILE}"
 
-echo "$(date): Sincronização IPv6 concluída. Atualizados: $UPDATED"
-rm -f "$TMP_FILE"
+echo "\$(date): Sincronização IPv6 concluída. Atualizados: \$UPDATED"
+rm -f "\${TMP_FILE}"
 EOF
 
 chmod +x /usr/local/bin/sync_ipv6_cisco.sh
