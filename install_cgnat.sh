@@ -1422,8 +1422,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $total = count($resultados);
             
-            // Pegar informações do primeiro resultado
             if ($total > 0) {
+                // Pegar informações do primeiro resultado
                 $primeiro = $resultados[0];
                 $cliente_nome = $primeiro['cliente_nome'] ?? 'Nao identificado';
                 $ip_privado = $primeiro['ip_privado'] ?? null;
@@ -1431,53 +1431,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $log_acao = $primeiro['acao'] ?? null;
                 $log_destino = ($primeiro['ip_destino'] ?? '') . ':' . ($primeiro['porta_destino'] ?? '');
                 $log_protocolo = $primeiro['protocolo'] ?? null;
+                
+                // Tratar valores vazios para campos TIMESTAMP e INET
+                $ip_privado_sql = (!empty($ip_privado)) ? $ip_privado : null;
+                $log_data_hora_sql = (!empty($log_data_hora)) ? $log_data_hora : null;
+                $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
+                
+                // SALVAR NA TABELA lgpd_audit SOMENTE SE ENCONTROU RESULTADOS
+                $stmt = $db->prepare("
+                    INSERT INTO lgpd_audit (
+                        usuario, 
+                        ip_consultado, 
+                        porta_consultada, 
+                        motivo, 
+                        protocolo_judicial,
+                        ip_privado,
+                        cliente_nome,
+                        log_data_hora,
+                        log_acao,
+                        log_destino,
+                        log_protocolo,
+                        resultado_registros,
+                        ip_origem_consulta,
+                        user_agent
+                    ) VALUES (?, ?, ?, ?, ?, ?::inet, ?, ?, ?, ?, ?, ?, ?::inet, ?)
+                ");
+                $stmt->execute([
+                    $_SESSION['usuario'],
+                    $ip_publico,
+                    $porta,
+                    $motivo,
+                    $protocolo,
+                    $ip_privado_sql,
+                    $cliente_nome,
+                    $log_data_hora_sql,
+                    $log_acao,
+                    $log_destino,
+                    $log_protocolo,
+                    $total,
+                    $ip_origem,
+                    $_SERVER['HTTP_USER_AGENT'] ?? null
+                ]);
             }
             
-            // CORREÇÃO: Tratar valores vazios para campos INET
-            $ip_privado_sql = (!empty($ip_privado) && $ip_privado != '') ? $ip_privado : null;
-            $ip_origem = (!empty($_SERVER['REMOTE_ADDR'])) ? $_SERVER['REMOTE_ADDR'] : null;
-            
-            // SALVAR NA TABELA lgpd_audit COM TODAS AS INFORMAÇÕES
-            $stmt = $db->prepare("
-                INSERT INTO lgpd_audit (
-                    usuario, 
-                    ip_consultado, 
-                    porta_consultada, 
-                    motivo, 
-                    protocolo_judicial,
-                    ip_privado,
-                    cliente_nome,
-                    log_data_hora,
-                    log_acao,
-                    log_destino,
-                    log_protocolo,
-                    resultado_registros,
-                    ip_origem_consulta,
-                    user_agent
-                ) VALUES (?, ?, ?, ?, ?, ?::inet, ?, ?, ?, ?, ?, ?, ?::inet, ?)
-            ");
-            $stmt->execute([
-                $_SESSION['usuario'],
-                $ip_publico,
-                $porta,
-                $motivo,
-                $protocolo,
-                $ip_privado_sql,  // PODE SER NULL
-                $cliente_nome,
-                $log_data_hora,
-                $log_acao,
-                $log_destino,
-                $log_protocolo,
-                $total,
-                $ip_origem,       // PODE SER NULL
-                $_SERVER['HTTP_USER_AGENT'] ?? null
-            ]);
-            
-            $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado.';
+            $mensagem = $total > 0 ? "✅ Encontrados {$total} registros." : '⚠️ Nenhum registro encontrado para os parâmetros informados.';
             
         } catch (Exception $e) {
             $mensagem = "❌ Erro: " . $e->getMessage();
         }
+    } else {
+        $mensagem = '⚠️ Preencha o IP Público e a Porta Pública.';
     }
 }
 
