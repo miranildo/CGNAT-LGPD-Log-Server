@@ -2571,18 +2571,23 @@ mostrar_progresso() {
     local progresso=$((atual * tamanho / total))
     local restante=$((tamanho - progresso))
     
-    # Caracteres da barra
-    printf "\r   ["
-    printf "%${progresso}s" | tr ' ' '█'
-    printf "%${restante}s" | tr ' ' '░'
-    printf "] %3d%% (%d/%d)" $((atual * 100 / total)) $atual $total
+    # Construir a barra
+    local barra=""
+    for ((i=0; i<progresso; i++)); do
+        barra="${barra}█"
+    done
+    for ((i=0; i<restante; i++)); do
+        barra="${barra}░"
+    done
+    
+    printf "\r   [%s] %3d%% (%d/%d)" "$barra" $((atual * 100 / total)) $atual $total
 }
 
 # Iniciar sincronização em background
 /usr/local/bin/sync_ipv6_cisco.sh &
 PID=$!
 
-# Estimar total de clientes (buscar da tabela)
+# Estimar total de clientes
 TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
 TOTAL_CLIENTES=${TOTAL_CLIENTES:-629}
 
@@ -2602,7 +2607,7 @@ while kill -0 $PID 2>/dev/null; do
         ATUAL=$TOTAL_CLIENTES
     fi
     
-    # Mostrar barra de progresso
+    # Mostrar barra de progresso (atualiza a linha)
     mostrar_progresso $ATUAL $TOTAL_CLIENTES
     
     sleep 2
@@ -2613,9 +2618,8 @@ wait $PID
 STATUS=$?
 
 # Finalizar barra com 100%
-TOTAL_CLIENTES_FINAL=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
-TOTAL_CLIENTES_FINAL=${TOTAL_CLIENTES_FINAL:-629}
-mostrar_progresso $TOTAL_CLIENTES_FINAL $TOTAL_CLIENTES_FINAL
+echo ""
+mostrar_progresso $TOTAL_CLIENTES $TOTAL_CLIENTES
 echo ""
 echo ""
 
@@ -2630,7 +2634,7 @@ TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cli
 
 if [ $STATUS -eq 0 ]; then
     echo "✅ Sincronização IPv6 concluída em ${MINUTOS}m${SEGUNDOS}s!"
-    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0} de ${TOTAL_CLIENTES_FINAL}"
+    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0} de ${TOTAL_CLIENTES}"
     print_success "Sincronização IPv6 inicial finalizada"
 else
     echo "❌ Sincronização IPv6 inicial falhou em ${MINUTOS}m${SEGUNDOS}s"
