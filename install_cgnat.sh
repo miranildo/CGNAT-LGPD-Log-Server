@@ -111,7 +111,6 @@ if command -v lsb_release &> /dev/null; then
     DEBIAN_VERSION=$(lsb_release -rs)
     DEBIAN_CODENAME=$(lsb_release -cs)
 else
-    # Fallback para sistemas sem lsb_release
     if grep -q "bookworm" /etc/os-release 2>/dev/null; then
         DEBIAN_VERSION="12"
         DEBIAN_CODENAME="bookworm"
@@ -126,84 +125,59 @@ fi
 
 print_info "Detectado Debian ${DEBIAN_VERSION} (${DEBIAN_CODENAME})"
 
-# Instalar pacotes base (incluindo gnupg)
+# Instalar pacotes base
 print_info "Instalando pacotes base..."
 apt update
 apt install -y \
-    sudo \
-    wget curl vim htop net-tools \
-    build-essential \
-    gnupg \
+    sudo wget curl vim htop net-tools \
+    build-essential gnupg \
     python3 python3-pip python3-venv \
     postgresql postgresql-contrib \
     rsyslog logrotate \
     apache2 \
     sshpass \
     default-mysql-client \
-    tcpdump \
-    git \
-    chrony
-
-# PHP e extensões (compatível com PHP 8.x)
-print_info "Instalando PHP e extensões..."
-apt install -y \
-    php \
-    php-pgsql \
-    php-curl \
-    php-mbstring
+    tcpdump git chrony \
+    php php-pgsql php-curl php-mbstring
 
 print_success "Pacotes base instalados"
 
-# Instalar mysql_fdw de acordo com a versão do Debian
+# Instalar mysql_fdw
 print_info "Instalando postgresql-15-mysql-fdw..."
 
 # Verificar se o pacote já está instalado
-if dpkg -l | grep -q postgresql-15-mysql-fdw; then
+if dpkg -l 2>/dev/null | grep -q "postgresql-15-mysql-fdw"; then
     print_info "postgresql-15-mysql-fdw já está instalado"
 else
-    case "${DEBIAN_VERSION}" in
-        12|bookworm)
-            # Debian 12 tem PostgreSQL 15 nativo
-            print_info "Debian 12 - Instalando pacote nativo"
-            apt install -y postgresql-15-mysql-fdw
-            ;;
-        13|trixie)
-            # Debian 13 precisa do repositório PGDG
-            print_info "Debian 13 - Adicionando repositório PGDG..."
-            
-            # Criar diretório para as chaves
-            mkdir -p /usr/share/keyrings
-            
-            # Instalar chave GPG do PGDG (usando apt-key ou baixando direto)
-            if command -v gpg &> /dev/null; then
-                curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-            else
-                # Se gpg não estiver disponível, usar apt-key (deprecated mas funciona)
-                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-            fi
-            
-            # Adicionar repositório PGDG
-            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-            
-            # Atualizar e instalar
-            apt update
-            apt install -y postgresql-15-mysql-fdw
-            ;;
-        *)
-            # Fallback: tentar via PGDG
-            print_warning "Versão não reconhecida (${DEBIAN_VERSION}). Usando PGDG..."
-            
-            mkdir -p /usr/share/keyrings
-            if command -v gpg &> /dev/null; then
-                curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-            else
-                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-            fi
-            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-            apt update
-            apt install -y postgresql-15-mysql-fdw
-            ;;
-    esac
+    # Verificar se o pacote está disponível nativamente
+    if apt-cache show postgresql-15-mysql-fdw 2>/dev/null | grep -q "Package: postgresql-15-mysql-fdw"; then
+        print_info "Instalando pacote nativo"
+        apt install -y postgresql-15-mysql-fdw
+    else
+        # Adicionar repositório PGDG
+        print_info "Adicionando repositório PGDG..."
+        
+        mkdir -p /usr/share/keyrings
+        
+        # Instalar chave GPG
+        if command -v gpg &> /dev/null; then
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+        else
+            wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+        fi
+        
+        # Determinar repositório correto
+        if [ "$DEBIAN_CODENAME" = "trixie" ] || [ "$DEBIAN_VERSION" = "13" ]; then
+            PG_REPO="trixie-pgdg"
+        else
+            PG_REPO="${DEBIAN_CODENAME}-pgdg"
+        fi
+        
+        echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $PG_REPO main" > /etc/apt/sources.list.d/pgdg.list
+        
+        apt update
+        apt install -y postgresql-15-mysql-fdw
+    fi
 fi
 
 print_success "Pacotes instalados com sucesso!"
@@ -228,7 +202,7 @@ chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 print_success "Diretórios criados"
 
 # ============================================================
-# 6. CONFIGURAR POSTGRESQL (COMPATÍVEL DEBIAN 12 e 13)
+# 6. CONFIGURAR POSTGRESQL (COMPATÍVEL DEBIAN 12 E 13)
 # ============================================================
 print_header "6. CONFIGURANDO POSTGRESQL"
 
@@ -237,44 +211,75 @@ systemctl stop postgresql 2>/dev/null || true
 systemctl stop postgresql@15-main 2>/dev/null || true
 systemctl stop postgresql@17-main 2>/dev/null || true
 
-# Verificar qual versão está instalada
-PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
+# Verificar versões disponíveis
+PG_AVAILABLE=$(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
+print_info "Versões do PostgreSQL disponíveis: $(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | tr '\n' ' ')"
 
-if [ -z "$PG_VERSION" ]; then
+# Determinar qual versão usar (priorizar 15, se disponível)
+if [ -d "/usr/lib/postgresql/15" ]; then
     PG_VERSION="15"
+elif [ -d "/usr/lib/postgresql/14" ]; then
+    PG_VERSION="14"
+elif [ -d "/usr/lib/postgresql/13" ]; then
+    PG_VERSION="13"
+elif [ -d "/usr/lib/postgresql/17" ]; then
+    PG_VERSION="17"
+else
+    PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n | head -1)
 fi
 
-print_info "Versão do PostgreSQL detectada: ${PG_VERSION}"
+print_info "Versão do PostgreSQL selecionada: ${PG_VERSION}"
 
-# Remover clusters antigos
+# Remover clusters existentes da versão selecionada
 pg_dropcluster ${PG_VERSION} main --stop 2>/dev/null || true
 rm -rf /var/lib/postgresql/${PG_VERSION}/main 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
 
-# Criar novo cluster
-pg_createcluster ${PG_VERSION} main --start -u postgres
+# Criar novo cluster com porta 5432
+pg_createcluster ${PG_VERSION} main --start -u postgres -p 5432
 
-# Iniciar PostgreSQL
-systemctl start postgresql
-systemctl enable postgresql
+# Garantir que a porta 5432 está configurada
+CONF_FILE="/etc/postgresql/${PG_VERSION}/main/postgresql.conf"
+if [ -f "$CONF_FILE" ]; then
+    sed -i "s/^port =.*/port = 5432/" "$CONF_FILE" 2>/dev/null || echo "port = 5432" >> "$CONF_FILE"
+fi
+
+# Iniciar PostgreSQL da versão correta
+systemctl start postgresql@${PG_VERSION}-main
+systemctl enable postgresql@${PG_VERSION}-main
 sleep 5
 
+# Se houver outra versão rodando, parar
+if [ "$PG_VERSION" != "17" ] && systemctl is-active --quiet postgresql@17-main 2>/dev/null; then
+    print_info "Parando PostgreSQL 17 para evitar conflito..."
+    systemctl stop postgresql@17-main
+    systemctl disable postgresql@17-main 2>/dev/null || true
+fi
+
 # Verificar se está rodando
-if ! systemctl is-active --quiet postgresql; then
+if ! systemctl is-active --quiet postgresql@${PG_VERSION}-main; then
     print_warning "Tentando iniciar com pg_ctlcluster..."
     pg_ctlcluster ${PG_VERSION} main start
     sleep 3
 fi
 
-if ! systemctl is-active --quiet postgresql; then
+if ! systemctl is-active --quiet postgresql@${PG_VERSION}-main; then
     print_error "Não foi possível iniciar o PostgreSQL"
     pg_lsclusters
     journalctl -u postgresql -n 10 --no-pager
     exit 1
 fi
 
-print_success "PostgreSQL rodando (versão ${PG_VERSION})"
+print_success "PostgreSQL ${PG_VERSION} rodando na porta 5432"
+
+# Verificar conexão
+if sudo -u postgres psql -c "SELECT 1" 2>/dev/null; then
+    print_success "PostgreSQL respondendo corretamente"
+else
+    print_error "PostgreSQL não responde"
+    exit 1
+fi
 
 # ============================================================
 # 7. CRIAR USUÁRIOS E BANCO
