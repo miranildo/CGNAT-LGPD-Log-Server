@@ -1453,10 +1453,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $params[] = (int)$porta;
             }
             
-            // Filtro por IPv6
+            // Filtro por IPv6 - CORRIGIDO: extrair prefixo /56 do IPv6 completo
             if (!empty($ipv6_busca)) {
-                $sql .= " AND cl.ipv6_prefix = ?";
-                $params[] = $ipv6_busca;
+                // Função para extrair o prefixo /56 de um IPv6 completo
+                // Ex: 2804:3b80:5000:cd00:20d8:2edf:60f:e1a3 -> 2804:3b80:5000:cd00::/56
+                $ipv6_normalizado = $ipv6_busca;
+                
+                // Verifica se é um IPv6 completo (com ":" e sem "/")
+                if (strpos($ipv6_busca, ':') !== false && strpos($ipv6_busca, '/') === false) {
+                    // Quebra o IPv6 em partes
+                    $parts = explode(':', $ipv6_busca);
+                    // Pega as 4 primeiras partes (prefixo /64) e adiciona ::/56
+                    // Ou pega as 4 primeiras partes para /64, e 3 primeiras para /56
+                    if (count($parts) >= 4) {
+                        // Para /56, pegamos as 3 primeiras partes + a 4ª parte com zeros
+                        $prefixo_parts = array_slice($parts, 0, 3);
+                        // Pega a 4ª parte e zera os últimos 2 dígitos hexadecimais para /56
+                        // Mas como o Cisco dá /56, vamos manter a 4ª parte como está
+                        $quarta_parte = isset($parts[3]) ? $parts[3] : '0000';
+                        // Se a 4ª parte tem 4 dígitos, zera os últimos 2 para /56
+                        // Ex: cd00 -> cd00 (já está alinhado para /56)
+                        // Mas alguns casos podem ser cd00, outros cd01, etc
+                        // Como o prefixo /56 é fixo, vamos usar a 4ª parte como está
+                        $prefixo_completo = implode(':', $prefixo_parts) . ':' . $quarta_parte . '::/56';
+                        $ipv6_normalizado = $prefixo_completo;
+                    }
+                }
+                
+                // Se for um prefixo /56 (já com ::/56), usa direto
+                // Se for um IPv6 completo, converte para /56
+                
+                // Primeiro, tentar buscar na tabela clientes pelo prefixo normalizado
+                $stmt_login = $db->prepare("
+                    SELECT login, ip_privado, ipv6_prefix 
+                    FROM clientes 
+                    WHERE UPPER(ipv6_prefix) = UPPER(?)
+                ");
+                $stmt_login->execute([$ipv6_normalizado]);
+                $cliente_ipv6 = $stmt_login->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$cliente_ipv6) {
+                    // Se não encontrou, tentar buscar por prefixo extraído do IPv6 (case insensitive)
+                    // Extrai o prefixo /56 do IPv6: pega os primeiros 4 grupos (::/56)
+                    if (strpos($ipv6_busca, ':') !== false) {
+                        $parts = explode(':', $ipv6_busca);
+                        $prefixo_busca = '';
+                        if (count($parts) >= 4) {
+                            // Pega os 4 primeiros grupos e monta o prefixo /56
+                            $prefixo_busca = $parts[0] . ':' . $parts[1] . ':' . $parts[2] . ':' . $parts[3] . '::/56';
+                        }
+                        
+                        if (!empty($prefixo_busca)) {
+                            $stmt_login = $db->prepare("
+                                SELECT login, ip_privado, ipv6_prefix 
+                                FROM clientes 
+                                WHERE UPPER(ipv6_prefix) = UPPER(?)
+                            ");
+                            $stmt_login->execute([$prefixo_busca]);
+                            $cliente_ipv6 = $stmt_login->fetch(PDO::FETCH_ASSOC);
+                        }
+                    }
+                }
+                
+                if ($cliente_ipv6) {
+                    // Se encontrou o cliente, buscar logs por ip_privado
+                    $sql .= " AND c.ip_privado = ?::inet";
+                    $params[] = $cliente_ipv6['ip_privado'];
+                    
+                    // Guardar informações do cliente para exibição
+                    $cliente_nome = $cliente_ipv6['login'];
+                    $ipv6_prefix = $cliente_ipv6['ipv6_prefix'];
+                } else {
+                    // Se não encontrou, tenta buscar por ipv6_cliente na tabela cgnat_logs
+                    // (se algum log tiver o IPv6 completo salvo)
+                    $sql .= " AND UPPER(c.ipv6_cliente::text) LIKE UPPER(?)";
+                    $params[] = '%' . $ipv6_busca . '%';
+                }
             }
             
             // Filtro por data/hora
@@ -1474,16 +1546,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Pegar informações do primeiro resultado
             if ($total > 0) {
                 $primeiro = $resultados[0];
-                $cliente_nome = $primeiro['cliente_nome'] ?? 'Nao identificado';
+                if (empty($cliente_nome) || $cliente_nome == 'Nao identificado') {
+                    $cliente_nome = $primeiro['cliente_nome'] ?? 'Nao identificado';
+                }
                 $ip_privado = $primeiro['ip_privado'] ?? null;
-                $ipv6_prefix = $primeiro['ipv6_prefix'] ?? null;
+                $ipv6_prefix = $primeiro['ipv6_prefix'] ?? ($ipv6_prefix ?? null);
                 $log_data_hora = $primeiro['data_hora'] ?? null;
                 $log_acao = $primeiro['acao'] ?? null;
                 $log_destino = ($primeiro['ip_destino'] ?? '') . ':' . ($primeiro['porta_destino'] ?? '');
                 $log_protocolo = $primeiro['protocolo'] ?? null;
             }
             
-            // SALVAR NA TABELA lgpd_audit - tratar valores vazios como NULL
+            // SALVAR NA TABELA lgpd_audit
             $ip_publico_sql = !empty($ip_publico) ? $ip_publico : null;
             $porta_sql = !empty($porta) ? (int)$porta : null;
             $ip_privado_sql = !empty($ip_privado) ? $ip_privado : null;
@@ -1517,7 +1591,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $motivo,
                 $protocolo,
                 $ip_privado_sql,
-                $cliente_nome,
+                $cliente_nome ?: 'Nao identificado',
                 $ipv6_prefix_sql,
                 $log_data_hora_sql,
                 $log_acao,
@@ -1616,7 +1690,7 @@ include 'menu.php';
             <div class="row">
                 <div class="form-group">
                     <label>IPv6 do Cliente <span style="color:#888;font-weight:normal;">(ou use IP+Porta)</span></label>
-                    <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:XXXX::/56" value="<?php echo htmlspecialchars($_POST['ipv6_busca'] ?? ''); ?>">
+                    <input type="text" name="ipv6_busca" id="ipv6_busca" placeholder="Ex: 2804:3B80:5000:CD00:20D8:2EDF:060F:E1A3" value="<?php echo htmlspecialchars($_POST['ipv6_busca'] ?? ''); ?>">
                     <div class="info-required">Informe o IP+Porta OU o IPv6 para consultar</div>
                 </div>
                 <div class="form-group">
