@@ -1142,7 +1142,7 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 MENU_PHP
 
 # ============================================================
-# 12.7 INDEX.PHP (COM ATUALIZAÇÃO AUTOMÁTICA)
+# 12.7 INDEX.PHP (COM INDICADOR DE DISCO ESTILIZADO)
 # ============================================================
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
 <?php
@@ -1153,7 +1153,7 @@ require_once 'functions.php';
 
 $db = getDBConnection();
 
-$stmt = $db->query("SELECT COUNT(*) FROM cgnat_logs");
+$stmt = $db->query("SELECT total FROM vw_cgnat_logs_count");
 $total_logs = $stmt->fetchColumn();
 
 $stmt = $db->query("SELECT COUNT(*) FROM clientes");
@@ -1161,6 +1161,23 @@ $total_clientes = $stmt->fetchColumn();
 
 $stmt = $db->query("SELECT COUNT(*) FROM lgpd_audit WHERE DATE(data_consulta) = CURRENT_DATE");
 $consultas_hoje = $stmt->fetchColumn();
+
+// Buscar espaço em disco
+$disco_info = shell_exec("df -h / | grep -v Filesystem | awk '{print $2,$3,$4,$5}'");
+$disco_parts = preg_split('/\s+/', trim($disco_info));
+$disco_total = $disco_parts[0] ?? 'N/A';
+$disco_usado = $disco_parts[1] ?? 'N/A';
+$disco_livre = $disco_parts[2] ?? 'N/A';
+$disco_uso = $disco_parts[3] ?? 'N/A';
+
+// Buscar tamanho do banco
+try {
+    $stmt = $db->query("SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho");
+    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    $tamanho_db = $result['tamanho'] ?? 'N/A';
+} catch (Exception $e) {
+    $tamanho_db = 'N/A';
+}
 
 include 'menu.php';
 ?>
@@ -1177,45 +1194,198 @@ include 'menu.php';
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
-        .card-welcome { background: white; border-radius: 10px; padding: 40px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 30px; }
-        .card-welcome h1 { color: #333; font-size: 28px; margin-bottom: 10px; }
-        .card-welcome p { color: #666; font-size: 16px; }
-        .card-welcome .user { color: #667eea; font-weight: bold; }
-        .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
-        .card { background: white; padding: 25px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
-        .card .numero { font-size: 32px; font-weight: bold; color: #667eea; }
-        .card .label { color: #888; margin-top: 5px; font-size: 14px; }
+
+        /* Header com indicador de disco */
+        .header-index {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: white;
+            border-radius: 10px;
+            padding: 20px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        .header-index .welcome h1 {
+            color: #333;
+            font-size: 24px;
+        }
+        .header-index .welcome h1 .user {
+            color: #667eea;
+            font-weight: bold;
+        }
+        .header-index .welcome p {
+            color: #666;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+        .header-index .welcome .perfil {
+            color: #999;
+            font-size: 13px;
+            margin-top: 2px;
+        }
+
+        /* Card do disco */
+        .disco-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 12px 20px;
+            min-width: 200px;
+            border: 1px solid #e9ecef;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .disco-card .icon {
+            font-size: 24px;
+            color: #667eea;
+        }
+        .disco-card .info .uso {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+        }
+        .disco-card .info .total {
+            font-size: 14px;
+            color: #888;
+        }
+        .disco-card .barra {
+            width: 80px;
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 4px 0;
+        }
+        .disco-card .barra-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+        .disco-card .barra-fill.verde { background: #27ae60; }
+        .disco-card .barra-fill.amarelo { background: #f39c12; }
+        .disco-card .barra-fill.vermelho { background: #e74c3c; }
+        .disco-card .detalhes {
+            font-size: 11px;
+            color: #aaa;
+            display: flex;
+            gap: 8px;
+        }
+        .disco-card .detalhes .db {
+            border-left: 1px solid #ddd;
+            padding-left: 8px;
+        }
+
+        /* Cards de métricas */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .card .numero {
+            font-size: 32px;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .card .label {
+            color: #888;
+            margin-top: 5px;
+            font-size: 14px;
+        }
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
-        .btn-consulta { display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 18px 50px; border-radius: 8px; font-size: 18px; font-weight: 600; cursor: pointer; text-decoration: none; transition: transform 0.2s; margin-top: 10px; }
+
+        .btn-consulta {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 18px 50px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            transition: transform 0.2s;
+            margin-top: 10px;
+        }
         .btn-consulta:hover { transform: scale(1.02); }
         .actions { text-align: center; margin-top: 20px; }
-        @media (max-width: 768px) { .cards { grid-template-columns: 1fr 1fr; } }
+
+        @media (max-width: 768px) {
+            .cards { grid-template-columns: 1fr 1fr; }
+            .header-index { flex-direction: column; align-items: stretch; }
+            .disco-card { justify-content: center; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="card-welcome">
-            <h1>👋 Bem-vindo, <span class="user"><?php echo htmlspecialchars($_SESSION['nome_completo']); ?></span></h1>
-            <p>Sistema de Consulta CGNAT para atendimento à LGPD.</p>
-            <p style="margin-top: 5px; font-size: 14px; color: #999;">
-                Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong>
-            </p>
+        <!-- Header com boas-vindas e indicador de disco -->
+        <div class="header-index">
+            <div class="welcome">
+                <h1>👋 Bem-vindo, <span class="user"><?php echo htmlspecialchars($_SESSION['nome_completo']); ?></span></h1>
+                <p>Sistema de Consulta CGNAT para atendimento à LGPD.</p>
+                <div class="perfil">Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong></div>
+            </div>
+
+            <!-- Card de Disco (estilizado) -->
+            <div class="disco-card">
+                <div class="icon">💾</div>
+                <div class="info">
+                    <div class="uso"><?php echo $disco_usado; ?> <span class="total">/ <?php echo $disco_total; ?></span></div>
+                    <div class="barra">
+                        <?php 
+                        $percentual = (int)str_replace('%', '', $disco_uso);
+                        $cor = $percentual < 70 ? 'verde' : ($percentual < 85 ? 'amarelo' : 'vermelho');
+                        ?>
+                        <div class="barra-fill <?php echo $cor; ?>" style="width: <?php echo min($percentual, 100); ?>%;"></div>
+                    </div>
+                    <div class="detalhes">
+                        <span>📊 <?php echo $disco_uso; ?> usado</span>
+                        <span class="db">🗄️ DB: <?php echo $tamanho_db; ?></span>
+                    </div>
+                </div>
+            </div>
         </div>
-        
+
+        <!-- Cards de métricas -->
         <div class="cards">
-            <div class="card card-verde"><div class="numero"><?php echo $consultas_hoje; ?></div><div class="label">Consultas Hoje</div></div>
-            <div class="card"><div class="numero" id="total_logs"><?php echo number_format($total_logs); ?></div><div class="label">Total de Logs CGNAT</div></div>
-            <div class="card card-amarelo"><div class="numero"><?php echo number_format($total_clientes); ?></div><div class="label">Clientes Cadastrados</div></div>
-            <div class="card card-vermelho"><div class="numero"><?php echo date('d/m/Y'); ?></div><div class="label">Data Atual</div></div>
+            <div class="card card-verde">
+                <div class="numero"><?php echo $consultas_hoje; ?></div>
+                <div class="label">Consultas Hoje</div>
+            </div>
+            <div class="card card-vermelho">
+                <div class="numero" id="total_logs"><?php echo number_format($total_logs); ?></div>
+                <div class="label">Total de Logs CGNAT</div>
+            </div>
+            <div class="card card-amarelo">
+                <div class="numero"><?php echo number_format($total_clientes); ?></div>
+                <div class="label">Clientes Cadastrados</div>
+            </div>
+            <div class="card">
+                <div class="numero"><?php echo date('d/m/Y'); ?></div>
+                <div class="label">Data Atual</div>
+            </div>
         </div>
-        
+
+        <!-- Botão Consultar -->
         <div class="actions">
             <a href="consultar.php" class="btn-consulta">🔍 Ir para Consultas</a>
         </div>
     </div>
-    
+
     <!-- Atualização automática a cada 30 segundos -->
     <script>
     setTimeout(function() {
