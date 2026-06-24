@@ -126,13 +126,14 @@ fi
 
 print_info "Detectado Debian ${DEBIAN_VERSION} (${DEBIAN_CODENAME})"
 
-# Instalar pacotes base
+# Instalar pacotes base (incluindo gnupg)
 print_info "Instalando pacotes base..."
 apt update
 apt install -y \
     sudo \
     wget curl vim htop net-tools \
     build-essential \
+    gnupg \
     python3 python3-pip python3-venv \
     postgresql postgresql-contrib \
     rsyslog logrotate \
@@ -150,11 +151,6 @@ apt install -y \
     php-pgsql \
     php-curl \
     php-mbstring
-
-# O php-json é nativo no PHP 8.x, mas garantimos compatibilidade
-if ! apt install -y php-json 2>/dev/null; then
-    print_info "php-json já está incluído no PHP 8.x, pulando..."
-fi
 
 print_success "Pacotes base instalados"
 
@@ -175,11 +171,16 @@ else
             # Debian 13 precisa do repositório PGDG
             print_info "Debian 13 - Adicionando repositório PGDG..."
             
-            # Adicionar chave GPG do PGDG
-            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg 2>/dev/null || {
-                print_warning "Falha ao baixar chave GPG, tentando com wget..."
-                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-            }
+            # Criar diretório para as chaves
+            mkdir -p /usr/share/keyrings
+            
+            # Instalar chave GPG do PGDG (usando apt-key ou baixando direto)
+            if command -v gpg &> /dev/null; then
+                curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            else
+                # Se gpg não estiver disponível, usar apt-key (deprecated mas funciona)
+                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+            fi
             
             # Adicionar repositório PGDG
             echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
@@ -192,9 +193,12 @@ else
             # Fallback: tentar via PGDG
             print_warning "Versão não reconhecida (${DEBIAN_VERSION}). Usando PGDG..."
             
-            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg 2>/dev/null || {
-                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
-            }
+            mkdir -p /usr/share/keyrings
+            if command -v gpg &> /dev/null; then
+                curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            else
+                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+            fi
             echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
             apt update
             apt install -y postgresql-15-mysql-fdw
