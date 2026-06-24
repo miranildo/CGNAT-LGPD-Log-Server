@@ -196,7 +196,7 @@ sudo -u postgres psql -d cgnat_logs -c "CREATE EXTENSION IF NOT EXISTS dblink;" 
 print_success "Usuários e banco criados"
 
 # ============================================================
-# 8. CRIAR TABELAS (COM AS NOVAS COLUNAS PARA LGPD)
+# 8. CRIAR TABELAS (COM AS NOVAS COLUNAS PARA LGPD E IPv6)
 # ============================================================
 print_header "8. CRIANDO TABELAS"
 
@@ -224,6 +224,9 @@ CREATE TABLE IF NOT EXISTS clientes (
     login VARCHAR(100) NOT NULL UNIQUE,
     nome TEXT,
     ip_privado INET NOT NULL,
+    ipv6_prefix TEXT,
+    ipv6_address TEXT,
+    ipv6_atualizado TIMESTAMP,
     criado_em TIMESTAMP DEFAULT NOW()
 );
 
@@ -237,6 +240,7 @@ CREATE TABLE IF NOT EXISTS lgpd_audit (
     protocolo_judicial VARCHAR(50),
     ip_privado INET,
     cliente_nome TEXT,
+    ipv6_cliente INET,
     log_data_hora TIMESTAMP,
     log_acao VARCHAR(10),
     log_destino TEXT,
@@ -285,12 +289,15 @@ CREATE INDEX IF NOT EXISTS idx_cgnat_data_hora ON cgnat_logs(data_hora);
 CREATE INDEX IF NOT EXISTS idx_cgnat_ip_porta_data ON cgnat_logs(ip_publico, porta_publica, data_hora);
 CREATE INDEX IF NOT EXISTS idx_cgnat_acao ON cgnat_logs(acao);
 CREATE INDEX IF NOT EXISTS idx_cgnat_login ON cgnat_logs(login);
+CREATE INDEX IF NOT EXISTS idx_cgnat_ipv6 ON cgnat_logs(ipv6_cliente);
 CREATE INDEX IF NOT EXISTS idx_clientes_ip_privado ON clientes(ip_privado);
 CREATE INDEX IF NOT EXISTS idx_clientes_login ON clientes(login);
+CREATE INDEX IF NOT EXISTS idx_clientes_ipv6 ON clientes(ipv6_prefix);
 CREATE INDEX IF NOT EXISTS idx_lgpd_data ON lgpd_audit(data_consulta);
 CREATE INDEX IF NOT EXISTS idx_lgpd_ip_publico ON lgpd_audit(ip_consultado);
 CREATE INDEX IF NOT EXISTS idx_lgpd_ip_privado ON lgpd_audit(ip_privado);
 CREATE INDEX IF NOT EXISTS idx_lgpd_cliente ON lgpd_audit(cliente_nome);
+CREATE INDEX IF NOT EXISTS idx_lgpd_ipv6 ON lgpd_audit(ipv6_cliente);
 CREATE INDEX IF NOT EXISTS idx_usuarios_usuario ON usuarios(usuario);
 
 INSERT INTO usuarios (usuario, senha_hash, nome_completo, perfil) VALUES
@@ -329,6 +336,10 @@ BEGIN
     EXECUTE format('
         CREATE INDEX IF NOT EXISTS %I ON %I(data_hora)
     ', 'idx_' || nome_particao || '_data', nome_particao);
+    
+    EXECUTE format('
+        CREATE INDEX IF NOT EXISTS %I ON %I(ipv6_cliente)
+    ', 'idx_' || nome_particao || '_ipv6', nome_particao);
 END $$;
 
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_admin;
@@ -337,7 +348,7 @@ GRANT INSERT ON cgnat_logs TO cgnat_parser;
 GRANT INSERT ON clientes TO cgnat_parser;
 EOF
 
-print_success "Tabelas criadas com as novas colunas LGPD"
+print_success "Tabelas criadas com as novas colunas LGPD e IPv6"
 
 # ============================================================
 # 9. AMBIENTE PYTHON
@@ -1161,6 +1172,7 @@ $stmt = $db->query("
         data_consulta,
         cliente_nome,
         ip_privado,
+        ipv6_cliente,
         log_data_hora,
         log_acao,
         resultado_registros
@@ -1316,18 +1328,7 @@ include 'menu.php';
                     </thead>
                     <tbody>
                         <?php if ($ultimas): ?>
-                            <?php foreach ($ultimas as $row): 
-                                // Buscar IPv6 do cliente
-                                $ipv6 = '';
-                                if (!empty($row['ip_privado'])) {
-                                    $stmt_ipv6 = $db->prepare("SELECT ipv6_prefix FROM clientes WHERE ip_privado = ?::inet");
-                                    $stmt_ipv6->execute([$row['ip_privado']]);
-                                    $ipv6_result = $stmt_ipv6->fetch(PDO::FETCH_ASSOC);
-                                    if ($ipv6_result && !empty($ipv6_result['ipv6_prefix'])) {
-                                        $ipv6 = $ipv6_result['ipv6_prefix'];
-                                    }
-                                }
-                            ?>
+                            <?php foreach ($ultimas as $row): ?>
                             <tr>
                                 <td style="white-space:nowrap;"><?php echo date('d/m/Y H:i', strtotime($row['data_consulta'])); ?></td>
                                 <td><?php echo htmlspecialchars($row['usuario']); ?></td>
@@ -1342,8 +1343,8 @@ include 'menu.php';
                                 </td>
                                 <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
                                 <td>
-                                    <?php if (!empty($ipv6)): ?>
-                                        <span class="badge-ipv6"><?php echo htmlspecialchars($ipv6); ?></span>
+                                    <?php if (!empty($row['ipv6_cliente'])): ?>
+                                        <span class="badge-ipv6"><?php echo htmlspecialchars($row['ipv6_cliente']); ?></span>
                                     <?php else: ?>
                                         <span class="text-muted">-</span>
                                     <?php endif; ?>
@@ -1732,9 +1733,8 @@ try {
             a.data_consulta,
             a.cliente_nome,
             a.ip_privado,
-            c.ipv6_prefix
+            a.ipv6_cliente
         FROM lgpd_audit a
-        LEFT JOIN clientes c ON a.ip_privado = c.ip_privado
         WHERE DATE(a.data_consulta) BETWEEN ? AND ? 
         ORDER BY a.data_consulta DESC 
         LIMIT 50
@@ -1838,8 +1838,8 @@ include 'menu.php';
                     </td>
                     <td><?php echo htmlspecialchars($row['ip_privado'] ?? '-'); ?></td>
                     <td>
-                        <?php if (!empty($row['ipv6_prefix'])): ?>
-                            <span class="badge-ipv6"><?php echo htmlspecialchars($row['ipv6_prefix']); ?></span>
+                        <?php if (!empty($row['ipv6_cliente'])): ?>
+                            <span class="badge-ipv6"><?php echo htmlspecialchars($row['ipv6_cliente']); ?></span>
                         <?php else: ?>
                             <span class="text-muted">-</span>
                         <?php endif; ?>
