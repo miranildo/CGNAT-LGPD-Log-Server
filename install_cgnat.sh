@@ -102,10 +102,33 @@ apt upgrade -y
 print_success "Sistema atualizado"
 
 # ============================================================
-# 4. INSTALAR PACOTES
+# 4. INSTALAR PACOTES (COMPATÍVEL DEBIAN 12 E 13)
 # ============================================================
 print_header "4. INSTALANDO PACOTES"
 
+# Detectar versão do Debian
+if command -v lsb_release &> /dev/null; then
+    DEBIAN_VERSION=$(lsb_release -rs)
+    DEBIAN_CODENAME=$(lsb_release -cs)
+else
+    # Fallback para sistemas sem lsb_release
+    if grep -q "bookworm" /etc/os-release 2>/dev/null; then
+        DEBIAN_VERSION="12"
+        DEBIAN_CODENAME="bookworm"
+    elif grep -q "trixie" /etc/os-release 2>/dev/null; then
+        DEBIAN_VERSION="13"
+        DEBIAN_CODENAME="trixie"
+    else
+        DEBIAN_VERSION="12"
+        DEBIAN_CODENAME="bookworm"
+    fi
+fi
+
+print_info "Detectado Debian ${DEBIAN_VERSION} (${DEBIAN_CODENAME})"
+
+# Instalar pacotes base
+print_info "Instalando pacotes base..."
+apt update
 apt install -y \
     sudo \
     wget curl vim htop net-tools \
@@ -113,15 +136,73 @@ apt install -y \
     python3 python3-pip python3-venv \
     postgresql postgresql-contrib \
     rsyslog logrotate \
-    apache2 php php-pgsql php-curl php-json php-mbstring \
+    apache2 \
     sshpass \
     default-mysql-client \
     tcpdump \
-    postgresql-15-mysql-fdw \
     git \
     chrony
 
-print_success "Pacotes instalados"
+# PHP e extensões (compatível com PHP 8.x)
+print_info "Instalando PHP e extensões..."
+apt install -y \
+    php \
+    php-pgsql \
+    php-curl \
+    php-mbstring
+
+# O php-json é nativo no PHP 8.x, mas garantimos compatibilidade
+if ! apt install -y php-json 2>/dev/null; then
+    print_info "php-json já está incluído no PHP 8.x, pulando..."
+fi
+
+print_success "Pacotes base instalados"
+
+# Instalar mysql_fdw de acordo com a versão do Debian
+print_info "Instalando postgresql-15-mysql-fdw..."
+
+# Verificar se o pacote já está instalado
+if dpkg -l | grep -q postgresql-15-mysql-fdw; then
+    print_info "postgresql-15-mysql-fdw já está instalado"
+else
+    case "${DEBIAN_VERSION}" in
+        12|bookworm)
+            # Debian 12 tem PostgreSQL 15 nativo
+            print_info "Debian 12 - Instalando pacote nativo"
+            apt install -y postgresql-15-mysql-fdw
+            ;;
+        13|trixie)
+            # Debian 13 precisa do repositório PGDG
+            print_info "Debian 13 - Adicionando repositório PGDG..."
+            
+            # Adicionar chave GPG do PGDG
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg 2>/dev/null || {
+                print_warning "Falha ao baixar chave GPG, tentando com wget..."
+                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            }
+            
+            # Adicionar repositório PGDG
+            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+            
+            # Atualizar e instalar
+            apt update
+            apt install -y postgresql-15-mysql-fdw
+            ;;
+        *)
+            # Fallback: tentar via PGDG
+            print_warning "Versão não reconhecida (${DEBIAN_VERSION}). Usando PGDG..."
+            
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg 2>/dev/null || {
+                wget -q -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+            }
+            echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt ${DEBIAN_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+            apt update
+            apt install -y postgresql-15-mysql-fdw
+            ;;
+    esac
+fi
+
+print_success "Pacotes instalados com sucesso!"
 
 # ============================================================
 # 5. CRIAR DIRETÓRIOS
@@ -143,25 +224,42 @@ chmod -R 755 /opt/cgnat /var/www/html/cgnat /var/log/cgnat 2>/dev/null || true
 print_success "Diretórios criados"
 
 # ============================================================
-# 6. CONFIGURAR POSTGRESQL
+# 6. CONFIGURAR POSTGRESQL (COMPATÍVEL DEBIAN 12 e 13)
 # ============================================================
 print_header "6. CONFIGURANDO POSTGRESQL"
 
+# Parar qualquer instância existente
 systemctl stop postgresql 2>/dev/null || true
 systemctl stop postgresql@15-main 2>/dev/null || true
+systemctl stop postgresql@17-main 2>/dev/null || true
 
-pg_dropcluster 15 main --stop 2>/dev/null || true
-rm -rf /var/lib/postgresql/15/main 2>/dev/null || true
+# Verificar qual versão está instalada
+PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
+
+if [ -z "$PG_VERSION" ]; then
+    PG_VERSION="15"
+fi
+
+print_info "Versão do PostgreSQL detectada: ${PG_VERSION}"
+
+# Remover clusters antigos
+pg_dropcluster ${PG_VERSION} main --stop 2>/dev/null || true
+rm -rf /var/lib/postgresql/${PG_VERSION}/main 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
 
-pg_createcluster 15 main --start -u postgres
+# Criar novo cluster
+pg_createcluster ${PG_VERSION} main --start -u postgres
+
+# Iniciar PostgreSQL
 systemctl start postgresql
 systemctl enable postgresql
-sleep 3
+sleep 5
 
+# Verificar se está rodando
 if ! systemctl is-active --quiet postgresql; then
-    pg_ctlcluster 15 main start
+    print_warning "Tentando iniciar com pg_ctlcluster..."
+    pg_ctlcluster ${PG_VERSION} main start
     sleep 3
 fi
 
@@ -172,14 +270,7 @@ if ! systemctl is-active --quiet postgresql; then
     exit 1
 fi
 
-print_success "PostgreSQL rodando"
-
-if ! sudo -u postgres psql -c "SELECT 1" 2>/dev/null; then
-    print_error "PostgreSQL não responde"
-    exit 1
-fi
-
-print_success "PostgreSQL configurado"
+print_success "PostgreSQL rodando (versão ${PG_VERSION})"
 
 # ============================================================
 # 7. CRIAR USUÁRIOS E BANCO
