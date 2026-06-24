@@ -215,22 +215,20 @@ systemctl stop postgresql@17-main 2>/dev/null || true
 PG_AVAILABLE=$(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1)
 print_info "Versões do PostgreSQL disponíveis: $(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | tr '\n' ' ')"
 
-# Determinar qual versão usar (priorizar 15, se disponível)
+# Determinar qual versão usar (priorizar 15)
 if [ -d "/usr/lib/postgresql/15" ]; then
     PG_VERSION="15"
 elif [ -d "/usr/lib/postgresql/14" ]; then
     PG_VERSION="14"
 elif [ -d "/usr/lib/postgresql/13" ]; then
     PG_VERSION="13"
-elif [ -d "/usr/lib/postgresql/17" ]; then
-    PG_VERSION="17"
 else
     PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$' | sort -n | head -1)
 fi
 
 print_info "Versão do PostgreSQL selecionada: ${PG_VERSION}"
 
-# Remover clusters existentes da versão selecionada
+# Remover clusters existentes
 pg_dropcluster ${PG_VERSION} main --stop 2>/dev/null || true
 rm -rf /var/lib/postgresql/${PG_VERSION}/main 2>/dev/null || true
 rm -f /var/run/postgresql/.s.PGSQL.5432 2>/dev/null || true
@@ -239,10 +237,26 @@ rm -f /var/run/postgresql/.s.PGSQL.5432.lock 2>/dev/null || true
 # Criar novo cluster com porta 5432
 pg_createcluster ${PG_VERSION} main --start -u postgres -p 5432
 
-# Garantir que a porta 5432 está configurada
+# Otimizar configuração do PostgreSQL
 CONF_FILE="/etc/postgresql/${PG_VERSION}/main/postgresql.conf"
 if [ -f "$CONF_FILE" ]; then
+    # Garantir porta 5432
     sed -i "s/^port =.*/port = 5432/" "$CONF_FILE" 2>/dev/null || echo "port = 5432" >> "$CONF_FILE"
+    
+    # Otimizações de performance
+    echo "" >> "$CONF_FILE"
+    echo "# Otimizações CGNAT" >> "$CONF_FILE"
+    echo "shared_buffers = 256MB" >> "$CONF_FILE"
+    echo "effective_cache_size = 768MB" >> "$CONF_FILE"
+    echo "maintenance_work_mem = 64MB" >> "$CONF_FILE"
+    echo "checkpoint_completion_target = 0.9" >> "$CONF_FILE"
+    echo "wal_buffers = 16MB" >> "$CONF_FILE"
+    echo "default_statistics_target = 100" >> "$CONF_FILE"
+    echo "random_page_cost = 1.1" >> "$CONF_FILE"
+    echo "effective_io_concurrency = 200" >> "$CONF_FILE"
+    echo "work_mem = 4MB" >> "$CONF_FILE"
+    echo "min_wal_size = 1GB" >> "$CONF_FILE"
+    echo "max_wal_size = 4GB" >> "$CONF_FILE"
 fi
 
 # Iniciar PostgreSQL da versão correta
@@ -250,12 +264,14 @@ systemctl start postgresql@${PG_VERSION}-main
 systemctl enable postgresql@${PG_VERSION}-main
 sleep 5
 
-# Se houver outra versão rodando, parar
-if [ "$PG_VERSION" != "17" ] && systemctl is-active --quiet postgresql@17-main 2>/dev/null; then
-    print_info "Parando PostgreSQL 17 para evitar conflito..."
-    systemctl stop postgresql@17-main
-    systemctl disable postgresql@17-main 2>/dev/null || true
-fi
+# Parar outras versões se estiverem rodando
+for ver in $(ls /usr/lib/postgresql/ 2>/dev/null | grep -E '^[0-9]+$'); do
+    if [ "$ver" != "$PG_VERSION" ] && systemctl is-active --quiet postgresql@${ver}-main 2>/dev/null; then
+        print_info "Parando PostgreSQL ${ver} para evitar conflito..."
+        systemctl stop postgresql@${ver}-main
+        systemctl disable postgresql@${ver}-main 2>/dev/null || true
+    fi
+done
 
 # Verificar se está rodando
 if ! systemctl is-active --quiet postgresql@${PG_VERSION}-main; then
@@ -465,13 +481,13 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 10. CRIAR O PARSER PYTHON
+# 10. CRIAR O PARSER PYTHON (VERSÃO OTIMIZADA)
 # ============================================================
 print_header "10. CRIANDO PARSER PYTHON"
 
 cat > /opt/cgnat/cgnat_parser.py << 'EOF'
 #!/usr/bin/env python3
-# /opt/cgnat/cgnat_parser.py - CORRIGIDO (busca primeiro em clientes)
+# /opt/cgnat/cgnat_parser.py - VERSÃO OTIMIZADA COM CACHE
 
 import re
 import sys
@@ -480,10 +496,10 @@ from datetime import datetime
 import logging
 from typing import Dict, Optional, Tuple
 
-# Configurar logging
+# Configurar logging - Nível WARNING para reduzir I/O
 logging.basicConfig(
     filename='/var/log/cgnat/parser.log',
-    level=logging.INFO,
+    level=logging.WARNING,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
@@ -496,6 +512,15 @@ class CGNATParserASR:
             password="WBT@0000000"
         )
         self.conn.autocommit = False
+        
+        # Pré-compilar expressões regulares para melhor performance
+        self.timestamp_pattern = re.compile(r'(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\.\d{3})')
+        self.nat_pattern = re.compile(r'%NAT-6-LOG_TRANSLATION:\s+(.+)')
+        self.translation_pattern = re.compile(
+            r'(Created|Deleted)\s+Translation\s+(\w+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+(\d+)'
+        )
+        
+        # Estatísticas
         self.stats = {
             'created': 0,
             'deleted': 0,
@@ -505,27 +530,26 @@ class CGNATParserASR:
             'not_found': 0
         }
         
+        # Cache de logins (evita consultas repetidas ao banco)
+        self.login_cache = {}
+        self.cache_hits = 0
+        self.cache_misses = 0
+        
     def parse_log_line(self, line: str) -> Optional[Dict]:
-        # Extrai timestamp
-        timestamp_match = re.search(r'(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\.\d{3})', line)
+        timestamp_match = self.timestamp_pattern.search(line)
         if timestamp_match:
             data_hora = self.parse_cisco_timestamp(timestamp_match.group(1))
         else:
             data_hora = datetime.now()
         
-        # Extrai a mensagem NAT
-        nat_match = re.search(r'%NAT-6-LOG_TRANSLATION:\s+(.+)', line)
+        nat_match = self.nat_pattern.search(line)
         if not nat_match:
             return None
             
         nat_message = nat_match.group(1)
-        
-        # Padrão para Created/Deleted Translation
-        pattern = r'(Created|Deleted)\s+Translation\s+(\w+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+(\d+)'
-        match = re.search(pattern, nat_message)
+        match = self.translation_pattern.search(nat_message)
         
         if not match:
-            logging.warning(f"NAT message não parseada: {nat_message}")
             return None
             
         return {
@@ -553,11 +577,16 @@ class CGNATParserASR:
                 ms = int(parts[1][:3])
                 dt = dt.replace(microsecond=ms * 1000)
             return dt
-        except Exception as e:
-            logging.error(f"Erro ao parsear timestamp {timestamp_str}: {e}")
+        except Exception:
             return datetime.now()
     
     def get_pppoe_login(self, ip_privado: str, data_hora: datetime) -> Tuple[Optional[str], Optional[int]]:
+        # Verificar cache primeiro
+        if ip_privado in self.login_cache:
+            self.cache_hits += 1
+            return self.login_cache[ip_privado], None
+        
+        self.cache_misses += 1
         cursor = self.conn.cursor()
         try:
             # PRIMEIRO: Buscar na tabela clientes (MK-AUTH)
@@ -571,7 +600,7 @@ class CGNATParserASR:
             result = cursor.fetchone()
             if result:
                 self.stats['found_in_clientes'] += 1
-                logging.debug(f"Login encontrado em clientes: {result[0]} para IP {ip_privado}")
+                self.login_cache[ip_privado] = result[0]
                 return result[0], None
             
             # SEGUNDO: Buscar na tabela pppoe_sessoes (fallback)
@@ -588,17 +617,14 @@ class CGNATParserASR:
             result = cursor.fetchone()
             if result:
                 self.stats['found_in_pppoe'] += 1
-                logging.debug(f"Login encontrado em pppoe_sessoes: {result[0]} para IP {ip_privado}")
+                self.login_cache[ip_privado] = result[0]
                 return result[0], result[1]
             
-            # Não encontrou em lugar nenhum
             self.stats['not_found'] += 1
-            if self.stats['not_found'] % 1000 == 0:
-                logging.warning(f"IP {ip_privado} não encontrado em nenhuma tabela ({self.stats['not_found']} total)")
+            self.login_cache[ip_privado] = None
             return None, None
             
         except Exception as e:
-            logging.error(f"Erro ao buscar login para IP {ip_privado}: {e}")
             return None, None
         finally:
             cursor.close()
@@ -644,8 +670,8 @@ class CGNATParserASR:
                 self.stats['deleted'] += 1
                 
         except Exception as e:
-            logging.error(f"Erro ao salvar log: {e}")
             self.conn.rollback()
+            self.stats['errors'] += 1
         finally:
             cursor.close()
     
@@ -656,12 +682,11 @@ class CGNATParserASR:
                 self.save_log(parsed)
             else:
                 self.stats['errors'] += 1
-        except Exception as e:
-            logging.error(f"Erro ao processar linha: {e}")
+        except Exception:
             self.stats['errors'] += 1
     
     def run(self):
-        logging.info("Parser CGNAT iniciado - CORRIGIDO (busca em clientes primeiro)")
+        logging.warning("Parser CGNAT iniciado - VERSÃO OTIMIZADA COM CACHE")
         
         for line in sys.stdin:
             line = line.strip()
@@ -669,11 +694,11 @@ class CGNATParserASR:
                 continue
             self.process_line(line)
             
-            if (self.stats['created'] + self.stats['deleted']) % 1000 == 0:
-                logging.info(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, "
+            if (self.stats['created'] + self.stats['deleted']) % 5000 == 0:
+                logging.warning(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, "
+                           f"Cache: hits={self.cache_hits}, misses={self.cache_misses}, "
                            f"Found in clientes={self.stats['found_in_clientes']}, "
-                           f"Found in pppoe={self.stats['found_in_pppoe']}, "
-                           f"Not found={self.stats['not_found']}, Errors={self.stats['errors']}")
+                           f"Not found={self.stats['not_found']}")
 
 if __name__ == "__main__":
     parser = CGNATParserASR()
@@ -681,10 +706,10 @@ if __name__ == "__main__":
 EOF
 
 chmod +x /opt/cgnat/cgnat_parser.py
-print_success "Parser Python criado com correções"
+print_success "Parser Python criado com otimizações (cache e regex pré-compilados)"
 
 # ============================================================
-# 11. CRIAR SERVICE DO PARSER (CORRIGIDO)
+# 11. CRIAR SERVICE DO PARSER (COM OTIMIZAÇÕES)
 # ============================================================
 print_header "11. CRIANDO SERVICE DO PARSER"
 
@@ -703,6 +728,11 @@ Restart=always
 RestartSec=5
 StandardOutput=append:/var/log/cgnat/parser.log
 StandardError=append:/var/log/cgnat/parser.error.log
+# Otimizações de performance
+CPUQuota=80%
+Nice=-10
+IOSchedulingClass=realtime
+LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
@@ -712,7 +742,7 @@ systemctl daemon-reload
 systemctl enable cgnat-parser
 systemctl start cgnat-parser
 
-print_success "Service do parser criado"
+print_success "Service do parser criado com otimizações"
 
 # ============================================================
 # 12. CRIAR TODOS OS ARQUIVOS PHP
@@ -2265,14 +2295,20 @@ ADMIN_PHP
 print_success "TODOS os 11 arquivos PHP criados com sucesso!"
 
 # ============================================================
-# 13. CONFIGURAR RSYSLOG
+# 13. CONFIGURAR RSYSLOG (COM OTIMIZAÇÕES)
 # ============================================================
 print_header "13. CONFIGURANDO RSYSLOG"
 
 cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
+# Otimizações para alta velocidade
+$MaxMessageSize 64k
+$IMUDPServerTimeStamp on
+
 module(load="imudp")
 input(type="imudp" port="514")
+
 template(name="nat-template" type="string" string="%msg%\n")
+
 if $msg contains 'NAT-6-LOG_TRANSLATION' then {
     action(type="omfile" file="/var/log/cgnat/raw.log" template="nat-template")
     action(type="ompipe" pipe="/var/run/cgnat.pipe" template="nat-template")
@@ -2280,11 +2316,12 @@ if $msg contains 'NAT-6-LOG_TRANSLATION' then {
 }
 RSYSLOG
 
+# Criar pipe com buffer otimizado
 mkfifo /var/run/cgnat.pipe 2>/dev/null || true
 chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
 
 systemctl restart rsyslog 2>/dev/null || true
-print_success "Rsyslog configurado"
+print_success "Rsyslog configurado com otimizações"
 
 # ============================================================
 # 14. CONFIGURAR CRONJOBS
@@ -2517,18 +2554,59 @@ print_success "Script de sincronização IPv6 criado"
 print_header "15.6.1. EXECUTANDO SINCRONIZAÇÃO IPv6 INICIAL"
 
 print_info "Coletando IPv6 dos clientes no Cisco ASR..."
-/usr/local/bin/sync_ipv6_cisco.sh
 
-if [ $? -eq 0 ]; then
-    print_success "Sincronização IPv6 inicial concluída!"
+# Marcar tempo de início
+INICIO=$(date +%s)
+
+# Executar sincronização com contador de progresso
+{
+    echo "⏳ Iniciando sincronização IPv6..."
+    echo "📡 Conectando ao Cisco ASR em ${CISCO_IP}..."
     
-    # Mostrar quantos clientes têm IPv6
-    TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" | xargs)
-    print_info "Total de clientes com IPv6: ${TOTAL_IPV6}"
-else
-    print_warning "Sincronização IPv6 inicial falhou. O cron tentará novamente a cada 5 minutos."
-    print_info "Você pode executar manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
-fi
+    /usr/local/bin/sync_ipv6_cisco.sh &
+    PID=$!
+    
+    # Contador de progresso enquanto o script roda
+    while kill -0 $PID 2>/dev/null; do
+        # Buscar quantos clientes já foram atualizados
+        ATUALIZADOS=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_atualizado IS NOT NULL AND ipv6_atualizado > NOW() - INTERVAL '10 minutes';" 2>/dev/null | xargs)
+        if [ ! -z "$ATUALIZADOS" ] && [ "$ATUALIZADOS" -gt 0 ]; then
+            echo -ne "\r   📊 Clientes atualizados: ${ATUALIZADOS}  "
+        else
+            echo -ne "\r   ⏳ Aguardando dados do Cisco...  "
+        fi
+        sleep 2
+    done
+    
+    wait $PID
+    STATUS=$?
+    
+    echo ""
+    
+    if [ $STATUS -eq 0 ]; then
+        # Calcular tempo final
+        FIM=$(date +%s)
+        DURACAO=$((FIM - INICIO))
+        MINUTOS=$((DURACAO / 60))
+        SEGUNDOS=$((DURACAO % 60))
+        
+        # Buscar total de clientes com IPv6
+        TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
+        
+        echo "✅ Sincronização IPv6 concluída em ${MINUTOS}m${SEGUNDOS}s!"
+        echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0}"
+        print_success "Sincronização IPv6 inicial finalizada"
+    else
+        echo "❌ Sincronização IPv6 inicial falhou"
+        print_warning "Sincronização IPv6 inicial falhou. O cron tentará novamente a cada 5 minutos."
+        print_info "Você pode executar manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
+    fi
+} 2>&1 | while read line; do
+    # Mostrar apenas linhas que não são vazias
+    if [ ! -z "$line" ]; then
+        echo "$line"
+    fi
+done
 
 print_success "Sincronização IPv6 inicial finalizada"
 
