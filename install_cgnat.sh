@@ -779,8 +779,8 @@ cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'cgnat_logs');
 define('DB_USER', 'cgnat_admin');
-define('DB_PASS', 'WBT@00000000');
-define('MK_AUTH_HOST', '172.31.254.2');
+define('DB_PASS', 'Wbt@07717125');
+define('MK_AUTH_HOST', '172.31.255.2');
 define('MK_AUTH_DB', 'mkradius');
 define('MK_AUTH_USER', 'root');
 define('MK_AUTH_PASS', 'vertrigo');
@@ -1144,6 +1144,9 @@ MENU_PHP
 # ============================================================
 # 12.7 INDEX.PHP (COM CARD DE DISCO AO LADO DO TÍTULO)
 # ============================================================
+# ============================================================
+# 12.7 INDEX.PHP (DESIGN MODERNO E FONTE IGUAL AOS CARDS)
+# ============================================================
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
 <?php
 require_once 'headers.php';
@@ -1195,88 +1198,93 @@ include 'menu.php';
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
 
-        /* Header com boas-vindas e card de disco lado a lado */
+        /* Header moderno */
         .header-index {
             display: flex;
             justify-content: space-between;
             align-items: center;
             background: white;
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 20px 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
             margin-bottom: 30px;
             flex-wrap: wrap;
             gap: 15px;
         }
         .header-index .welcome h1 {
             color: #333;
-            font-size: 24px;
+            font-size: 22px;
+            font-weight: 600;
         }
         .header-index .welcome h1 .user {
             color: #667eea;
-            font-weight: bold;
+            font-weight: 700;
         }
         .header-index .welcome p {
-            color: #666;
+            color: #888;
             font-size: 14px;
-            margin-top: 4px;
+            margin-top: 2px;
         }
         .header-index .welcome .perfil {
-            color: #999;
+            color: #aaa;
             font-size: 13px;
             margin-top: 2px;
         }
 
-        /* Card de disco no header (mesmo estilo dos cards) */
+        /* Card de disco moderno (mesmo estilo dos cards) */
         .disco-card-header {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 12px 20px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 14px 24px;
             min-width: 180px;
             border: 1px solid #e9ecef;
             text-align: center;
             flex-shrink: 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
         }
         .disco-card-header .numero {
-            font-size: 22px;
-            font-weight: bold;
-            color: #667eea;
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
         }
         .disco-card-header .numero .total {
-            font-size: 16px;
+            font-size: 18px;
             color: #bbb;
-            font-weight: normal;
+            font-weight: 400;
         }
         .disco-card-header .barra {
             width: 100%;
             height: 6px;
-            background: #e9ecef;
-            border-radius: 3px;
+            background: #dee2e6;
+            border-radius: 4px;
             overflow: hidden;
-            margin: 6px 0 4px 0;
+            margin: 8px 0 6px 0;
         }
         .disco-card-header .barra-fill {
             height: 100%;
-            border-radius: 3px;
-            transition: width 0.5s;
+            border-radius: 4px;
+            transition: width 0.6s ease;
         }
-        .disco-card-header .barra-fill.verde { background: #27ae60; }
-        .disco-card-header .barra-fill.amarelo { background: #f39c12; }
-        .disco-card-header .barra-fill.vermelho { background: #e74c3c; }
+        .disco-card-header .barra-fill.verde { background: linear-gradient(90deg, #27ae60, #2ecc71); }
+        .disco-card-header .barra-fill.amarelo { background: linear-gradient(90deg, #f39c12, #f1c40f); }
+        .disco-card-header .barra-fill.vermelho { background: linear-gradient(90deg, #e74c3c, #c0392b); }
         .disco-card-header .label {
             color: #888;
-            font-size: 12px;
+            font-size: 13px;
+            font-weight: 500;
             margin-top: 2px;
         }
         .disco-card-header .detalhes {
-            font-size: 11px;
+            font-size: 12px;
             color: #aaa;
-            margin-top: 2px;
+            margin-top: 3px;
+            display: flex;
+            justify-content: center;
+            gap: 12px;
         }
         .disco-card-header .detalhes .db {
-            border-left: 1px solid #eee;
-            padding-left: 8px;
-            margin-left: 6px;
+            border-left: 1px solid #ddd;
+            padding-left: 12px;
         }
 
         /* Cards de métricas */
@@ -1288,44 +1296,51 @@ include 'menu.php';
         }
         .card {
             background: white;
-            padding: 20px 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 22px 15px;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
             text-align: center;
-            transition: transform 0.2s;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         .card:hover {
-            transform: translateY(-2px);
+            transform: translateY(-3px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.12);
         }
         .card .numero {
-            font-size: 28px;
-            font-weight: bold;
+            font-size: 30px;
+            font-weight: 700;
             color: #667eea;
         }
         .card .label {
             color: #888;
-            margin-top: 5px;
-            font-size: 13px;
+            margin-top: 6px;
+            font-size: 14px;
+            font-weight: 500;
         }
         .card-verde .numero { color: #27ae60; }
         .card-vermelho .numero { color: #e74c3c; }
         .card-amarelo .numero { color: #f39c12; }
 
+        /* Botão moderno */
         .btn-consulta {
             display: inline-block;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 18px 50px;
-            border-radius: 8px;
-            font-size: 18px;
+            padding: 16px 48px;
+            border-radius: 10px;
+            font-size: 17px;
             font-weight: 600;
             cursor: pointer;
             text-decoration: none;
-            transition: transform 0.2s;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
             margin-top: 10px;
         }
-        .btn-consulta:hover { transform: scale(1.02); }
+        .btn-consulta:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.4);
+        }
         .actions { text-align: center; margin-top: 20px; }
 
         @media (max-width: 768px) {
@@ -1335,6 +1350,7 @@ include 'menu.php';
         }
         @media (max-width: 480px) {
             .cards { grid-template-columns: 1fr; }
+            .disco-card-header .numero { font-size: 24px; }
         }
     </style>
 </head>
@@ -1348,7 +1364,7 @@ include 'menu.php';
                 <div class="perfil">Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong></div>
             </div>
 
-            <!-- Card de Disco (mesmo estilo dos cards) -->
+            <!-- Card de Disco (mesmo estilo e tamanho dos cards) -->
             <div class="disco-card-header">
                 <div class="numero">
                     <?php echo $disco_usado; ?> <span class="total">/ <?php echo $disco_total; ?></span>
@@ -1363,7 +1379,7 @@ include 'menu.php';
                 <div class="label">💾 Uso de Disco</div>
                 <div class="detalhes">
                     <span><?php echo $disco_uso; ?></span>
-                    <span class="db">DB: <?php echo $tamanho_db; ?></span>
+                    <span class="db">🗄️ <?php echo $tamanho_db; ?></span>
                 </div>
             </div>
         </div>
@@ -1671,9 +1687,13 @@ DASHBOARD_PHP
 # 12.9 CONSULTAR.PHP
 cat > /var/www/html/cgnat/consultar.php << 'CONSULTAR_PHP'
 <?php
+require_once 'headers.php';
 require_once 'auth.php';
 verificarPermissao();
 require_once 'functions.php';
+
+// Forçar timezone correto para este arquivo
+date_default_timezone_set('America/Recife');
 
 $resultados = null;
 $total = 0;
@@ -1686,13 +1706,16 @@ $log_acao = '';
 $log_destino = '';
 $log_protocolo = '';
 
+// Data atual no timezone correto
+$data_atual = date('Y-m-d');
+
 // Verificar se veio via GET (reabrir consulta)
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && (isset($_GET['ip_publico']) || isset($_GET['ipv6_busca']))) {
     $_POST['ip_publico'] = $_GET['ip_publico'] ?? '';
     $_POST['porta'] = $_GET['porta'] ?? '';
     $_POST['ipv6_busca'] = $_GET['ipv6_busca'] ?? '';
-    $_POST['data_inicio'] = $_GET['data_inicio'] ?? date('Y-m-d');
-    $_POST['data_fim'] = $_GET['data_fim'] ?? date('Y-m-d');
+    $_POST['data_inicio'] = $_GET['data_inicio'] ?? $data_atual;
+    $_POST['data_fim'] = $_GET['data_fim'] ?? $data_atual;
     $_POST['hora_inicio'] = $_GET['hora_inicio'] ?? '00:00';
     $_POST['hora_fim'] = $_GET['hora_fim'] ?? '23:59';
     $_POST['motivo'] = $_GET['motivo'] ?? 'Reabertura de consulta';
@@ -1752,11 +1775,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $params[] = (int)$porta;
             }
             
-            // Filtro por IPv6 - CORRIGIDO: extrair prefixo /56 do IPv6 completo
+            // Filtro por IPv6
             if (!empty($ipv6_busca)) {
                 $ipv6_normalizado = $ipv6_busca;
                 
-                // Verifica se é um IPv6 completo (com ":" e sem "/")
                 if (strpos($ipv6_busca, ':') !== false && strpos($ipv6_busca, '/') === false) {
                     $parts = explode(':', $ipv6_busca);
                     if (count($parts) >= 4) {
@@ -1766,7 +1788,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
                 
-                // Buscar o cliente na tabela clientes pelo prefixo
                 $stmt_login = $db->prepare("
                     SELECT login, ip_privado, ipv6_prefix, nome
                     FROM clientes 
@@ -1776,7 +1797,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $cliente_ipv6 = $stmt_login->fetch(PDO::FETCH_ASSOC);
                 
                 if (!$cliente_ipv6) {
-                    // Se não encontrou, tentar extrair prefixo novamente
                     if (strpos($ipv6_busca, ':') !== false) {
                         $parts = explode(':', $ipv6_busca);
                         $prefixo_busca = '';
@@ -1796,16 +1816,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 
                 if ($cliente_ipv6) {
-                    // Guardar informações do cliente para exibição
                     $cliente_nome_encontrado = $cliente_ipv6['nome'] ?? $cliente_ipv6['login'];
                     $ip_privado_encontrado = $cliente_ipv6['ip_privado'];
                     $ipv6_prefix_encontrado = $cliente_ipv6['ipv6_prefix'];
                     
-                    // Buscar logs por ip_privado
                     $sql .= " AND c.ip_privado = ?::inet";
                     $params[] = $cliente_ipv6['ip_privado'];
                 } else {
-                    // Fallback: buscar por ipv6_cliente na tabela cgnat_logs
                     $sql .= " AND UPPER(c.ipv6_cliente::text) LIKE UPPER(?)";
                     $params[] = '%' . $ipv6_busca . '%';
                 }
@@ -1826,7 +1843,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Pegar informações do primeiro resultado
             if ($total > 0) {
                 $primeiro = $resultados[0];
-                // Priorizar o nome encontrado na busca IPv6, se existir
                 if (!empty($cliente_nome_encontrado)) {
                     $cliente_nome = $cliente_nome_encontrado;
                 } else {
@@ -1901,6 +1917,9 @@ include 'menu.php';
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Consulta CGNAT - LGPD</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; padding: 20px; }
@@ -1983,21 +2002,21 @@ include 'menu.php';
             <div class="row">
                 <div class="form-group">
                     <label>Data Início</label>
-                    <input type="date" name="data_inicio" id="data_inicio" value="<?php echo $_POST['data_inicio'] ?? date('Y-m-d'); ?>">
+                    <input type="date" name="data_inicio" id="data_inicio" value="<?php echo htmlspecialchars($_POST['data_inicio'] ?? $data_atual); ?>">
                 </div>
                 <div class="form-group">
                     <label>Data Fim</label>
-                    <input type="date" name="data_fim" id="data_fim" value="<?php echo $_POST['data_fim'] ?? date('Y-m-d'); ?>">
+                    <input type="date" name="data_fim" id="data_fim" value="<?php echo htmlspecialchars($_POST['data_fim'] ?? $data_atual); ?>">
                 </div>
             </div>
             <div class="row">
                 <div class="form-group">
                     <label>Hora Início</label>
-                    <input type="time" name="hora_inicio" id="hora_inicio" value="<?php echo $_POST['hora_inicio'] ?? '00:00'; ?>">
+                    <input type="time" name="hora_inicio" id="hora_inicio" value="<?php echo htmlspecialchars($_POST['hora_inicio'] ?? '00:00'); ?>">
                 </div>
                 <div class="form-group">
                     <label>Hora Fim</label>
-                    <input type="time" name="hora_fim" id="hora_fim" value="<?php echo $_POST['hora_fim'] ?? '23:59'; ?>">
+                    <input type="time" name="hora_fim" id="hora_fim" value="<?php echo htmlspecialchars($_POST['hora_fim'] ?? '23:59'); ?>">
                 </div>
             </div>
             <div class="row">
@@ -2073,14 +2092,16 @@ include 'menu.php';
     
     <script>
     function limparFormulario() {
+        // Usar a data atual no timezone correto (via PHP)
+        var dataAtual = '<?php echo date("Y-m-d"); ?>';
+        
         document.getElementById('ip_publico').value = '';
         document.getElementById('porta').value = '';
         document.getElementById('ipv6_busca').value = '';
         document.getElementById('protocolo').value = '';
         
-        var hoje = new Date().toISOString().split('T')[0];
-        document.getElementById('data_inicio').value = hoje;
-        document.getElementById('data_fim').value = hoje;
+        document.getElementById('data_inicio').value = dataAtual;
+        document.getElementById('data_fim').value = dataAtual;
         document.getElementById('hora_inicio').value = '00:00';
         document.getElementById('hora_fim').value = '23:59';
         document.getElementById('motivo').value = 'Consulta LGPD';
