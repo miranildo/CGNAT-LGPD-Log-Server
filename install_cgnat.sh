@@ -779,7 +779,7 @@ cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'cgnat_logs');
 define('DB_USER', 'cgnat_admin');
-define('DB_PASS', 'Wbt@07717125');
+define('DB_PASS', 'WBT@00000000');
 define('MK_AUTH_HOST', '172.31.255.2');
 define('MK_AUTH_DB', 'mkradius');
 define('MK_AUTH_USER', 'root');
