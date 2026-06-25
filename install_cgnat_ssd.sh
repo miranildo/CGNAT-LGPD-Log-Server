@@ -1196,7 +1196,7 @@ include 'menu.php';
     <script>
     setTimeout(function() {
         location.reload();
-    }, 30000);
+    }, 5000);
     </script>
 </body>
 </html>
