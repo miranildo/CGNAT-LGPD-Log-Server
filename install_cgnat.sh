@@ -1142,9 +1142,6 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 MENU_PHP
 
 # ============================================================
-# 12.7 INDEX.PHP (COM CARD DE DISCO AO LADO DO TÍTULO)
-# ============================================================
-# ============================================================
 # 12.7 INDEX.PHP (DESIGN MODERNO E FONTE IGUAL AOS CARDS)
 # ============================================================
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
@@ -1414,7 +1411,7 @@ include 'menu.php';
     <script>
     setTimeout(function() {
         location.reload();
-    }, 30000);
+    }, 5000);
     </script>
 </body>
 </html>
