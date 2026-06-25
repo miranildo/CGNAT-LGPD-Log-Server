@@ -94,6 +94,19 @@ timedatectl set-ntp true
 print_success "Timezone configurado para $TIMEZONE"
 
 # ============================================================
+# 2.5. CORRIGIR HOSTNAME NO /ETC/HOSTS
+# ============================================================
+print_header "2.5. CORRIGINDO HOSTNAME NO /ETC/HOSTS"
+
+# Adicionar hostname ao /etc/hosts para evitar erros no sudo
+if ! grep -q "$(hostname)" /etc/hosts; then
+    echo "127.0.1.1 $(hostname)" >> /etc/hosts
+    print_success "Hostname adicionado ao /etc/hosts"
+else
+    print_success "Hostname já está no /etc/hosts"
+fi
+
+# ============================================================
 # 3. ATUALIZAR SISTEMA
 # ============================================================
 print_header "3. ATUALIZANDO SISTEMA"
