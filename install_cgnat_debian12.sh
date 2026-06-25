@@ -2222,16 +2222,75 @@ print_success "Cronjobs configurados"
 print_header "15. CRIANDO SCRIPTS ÚTEIS"
 
 # Script de Backup
-cat > /usr/local/bin/backup_cgnat.sh << 'BACKUP'
+# 1. Criar um usuário específico para backup
+sudo -u postgres psql -d cgnat_logs << 'EOF'
+-- Criar usuário para backup com permissões de superusuário
+CREATE USER backup_user WITH PASSWORD 'Backup@2026' SUPERUSER;
+GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO backup_user;
+EOF
+
+# 2. Criar o script de backup
+sudo tee /usr/local/bin/backup_cgnat.sh > /dev/null << 'BACKUP'
 #!/bin/bash
+# Script de backup do CGNAT
+
 BACKUP_DIR="/backup/cgnat"
 DATE=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="/var/log/cgnat/backup.log"
+
+DB_NAME="cgnat_logs"
+DB_USER="backup_user"
+DB_PASS="Backup@2026"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> $LOG_FILE
+}
+
+log "========================================"
+log "Iniciando backup..."
+
 mkdir -p $BACKUP_DIR
-sudo -u postgres pg_dump -d cgnat_logs -Fc -f $BACKUP_DIR/cgnat_logs_$DATE.dump
-gzip -f $BACKUP_DIR/cgnat_logs_$DATE.dump
+chmod 755 $BACKUP_DIR
+
+log "Executando pg_dump com usuário $DB_USER..."
+export PGPASSWORD="$DB_PASS"
+/usr/bin/pg_dump -h localhost -U $DB_USER -d $DB_NAME -Fc -f "$BACKUP_DIR/cgnat_logs_$DATE.dump" 2>> $LOG_FILE
+unset PGPASSWORD
+
+if [ -f "$BACKUP_DIR/cgnat_logs_$DATE.dump" ]; then
+    TAMANHO=$(stat -c%s "$BACKUP_DIR/cgnat_logs_$DATE.dump")
+    if [ $TAMANHO -gt 1024 ]; then
+        log "✅ Dump válido criado: $(du -h "$BACKUP_DIR/cgnat_logs_$DATE.dump" | cut -f1)"
+        log "Compactando arquivo..."
+        gzip -f "$BACKUP_DIR/cgnat_logs_$DATE.dump"
+        
+        if [ -f "$BACKUP_DIR/cgnat_logs_$DATE.dump.gz" ]; then
+            log "✅ Backup concluído: $BACKUP_DIR/cgnat_logs_$DATE.dump.gz"
+            TAMANHO_FINAL=$(du -h "$BACKUP_DIR/cgnat_logs_$DATE.dump.gz" | cut -f1)
+            log "Tamanho final: $TAMANHO_FINAL"
+        else
+            log "❌ Falha ao compactar o backup"
+        fi
+    else
+        log "❌ Dump vazio ou muito pequeno ($TAMANHO bytes)"
+        rm -f "$BACKUP_DIR/cgnat_logs_$DATE.dump"
+    fi
+else
+    log "❌ Falha ao criar o dump do banco"
+fi
+
+log "Removendo backups com mais de 30 dias..."
 find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
+
+log "Backups disponíveis:"
+ls -lh $BACKUP_DIR/*.dump.gz 2>/dev/null | while read line; do
+    log "  $line"
+done
+
+log "Backup finalizado"
 BACKUP
-chmod +x /usr/local/bin/backup_cgnat.sh
+
+sudo chmod +x /usr/local/bin/backup_cgnat.sh
 
 # Script de Monitoramento de Disco
 cat > /usr/local/bin/monitor_disco.sh << 'MONITOR'
