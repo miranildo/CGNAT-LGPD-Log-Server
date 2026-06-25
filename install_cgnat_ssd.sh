@@ -2340,6 +2340,78 @@ find $BACKUP_DIR -name "*.dump.gz" -mtime +30 -delete
 BACKUP
 chmod +x /usr/local/bin/backup_cgnat.sh
 
+# Script de Monitoramento de Disco
+cat > /usr/local/bin/monitor_disco.sh << 'MONITOR'
+#!/bin/bash
+echo "=== MONITORAMENTO DE DISCO CGNAT ==="
+echo "Data: $(date)"
+echo ""
+echo "📊 Tamanho do banco:"
+sudo -u postgres psql -d cgnat_logs -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs')) as tamanho;" 2>/dev/null || echo "Erro ao consultar banco"
+echo ""
+echo "💾 Espaço em disco:"
+df -h /
+echo ""
+echo "📁 Backups:"
+du -sh /backup/cgnat/ 2>/dev/null || echo "Nenhum backup"
+MONITOR
+chmod +x /usr/local/bin/monitor_disco.sh
+
+# Script para criar partições automaticamente
+cat > /usr/local/bin/create_cgnat_partition.sh << 'PART'
+#!/bin/bash
+# Script para criar partições CGNAT automaticamente
+
+echo "$(date): Criando partições CGNAT..."
+
+sudo -u postgres psql -d cgnat_logs << 'SQL'
+DO $$
+DECLARE
+    mes_atual DATE;
+    mes_seguinte DATE;
+    nome_particao TEXT;
+    data_inicio TEXT;
+    data_fim TEXT;
+    i INTEGER;
+BEGIN
+    FOR i IN 0..5 LOOP
+        mes_atual := date_trunc('month', CURRENT_DATE + (i || ' months')::INTERVAL);
+        mes_seguinte := mes_atual + INTERVAL '1 month';
+        data_inicio := to_char(mes_atual, 'YYYY-MM-DD');
+        data_fim := to_char(mes_seguinte, 'YYYY-MM-DD');
+        nome_particao := 'cgnat_logs_' || to_char(mes_atual, 'YYYY_MM');
+        
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_tables 
+            WHERE tablename = nome_particao
+        ) THEN
+            EXECUTE format('
+                CREATE TABLE %I PARTITION OF cgnat_logs
+                FOR VALUES FROM (%L) TO (%L)
+            ', nome_particao, data_inicio, data_fim);
+            
+            EXECUTE format('
+                CREATE INDEX %I ON %I(ip_publico)
+            ', 'idx_' || nome_particao || '_ip_pub', nome_particao);
+            
+            EXECUTE format('
+                CREATE INDEX %I ON %I(ip_privado)
+            ', 'idx_' || nome_particao || '_ip_priv', nome_particao);
+            
+            EXECUTE format('
+                CREATE INDEX %I ON %I(data_hora)
+            ', 'idx_' || nome_particao || '_data', nome_particao);
+            
+            RAISE NOTICE 'Partição % criada com sucesso', nome_particao;
+        END IF;
+    END LOOP;
+END $$;
+SQL
+
+echo "$(date): Partições criadas com sucesso."
+PART
+chmod +x /usr/local/bin/create_cgnat_partition.sh
+
 # Script de Sincronização MK-AUTH (MANTENDO O PADRÃO QUE FUNCIONA)
 cat > /usr/local/bin/sync_mkauth.sh << EOF
 #!/bin/bash
