@@ -3166,6 +3166,14 @@ else
 fi
 
 # ============================================================
+# 15.7. CONFIGURAR CRON PARA IPv6
+# ============================================================
+print_header "15.7. CONFIGURANDO CRON PARA IPv6"
+
+(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/sync_ipv6_cisco.sh >> /var/log/cgnat/sync_ipv6.log 2>&1") | crontab -
+print_success "Cron para IPv6 configurado (a cada 5 minutos)"
+
+# ============================================================
 # 16. CONCEDER PERMISSÕES
 # ============================================================
 print_header "16. CONCEDER PERMISSÕES"
