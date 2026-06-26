@@ -429,6 +429,18 @@ CREATE TABLE IF NOT EXISTS clientes (
     criado_em TIMESTAMP DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS historico_ipv6 (
+    id BIGSERIAL PRIMARY KEY,
+    login VARCHAR(100) NOT NULL,
+    ipv6_prefix VARCHAR(50) NOT NULL,
+    ipv6_address VARCHAR(50),
+    data_inicio TIMESTAMP NOT NULL,
+    data_fim TIMESTAMP,
+    ativo BOOLEAN DEFAULT TRUE,
+    criado_em TIMESTAMP DEFAULT NOW(),
+    atualizado_em TIMESTAMP DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS lgpd_audit (
     id BIGSERIAL PRIMARY KEY,
     usuario VARCHAR(100) NOT NULL,
@@ -497,6 +509,12 @@ CREATE INDEX IF NOT EXISTS idx_cgnat_ipv6 ON cgnat_logs(ipv6_cliente);
 CREATE INDEX IF NOT EXISTS idx_clientes_ip_privado ON clientes(ip_privado);
 CREATE INDEX IF NOT EXISTS idx_clientes_login ON clientes(login);
 CREATE INDEX IF NOT EXISTS idx_clientes_ipv6 ON clientes(ipv6_prefix);
+-- Índices para consultas históricas
+CREATE INDEX IF NOT EXISTS idx_historico_ipv6_login ON historico_ipv6(login);
+CREATE INDEX IF NOT EXISTS idx_historico_ipv6_prefix ON historico_ipv6(ipv6_prefix);
+CREATE INDEX IF NOT EXISTS idx_historico_ipv6_data_inicio ON historico_ipv6(data_inicio);
+CREATE INDEX IF NOT EXISTS idx_historico_ipv6_data_fim ON historico_ipv6(data_fim);
+CREATE INDEX IF NOT EXISTS idx_historico_ipv6_ativo ON historico_ipv6(ativo);
 CREATE INDEX IF NOT EXISTS idx_lgpd_data ON lgpd_audit(data_consulta);
 CREATE INDEX IF NOT EXISTS idx_lgpd_ip_publico ON lgpd_audit(ip_consultado);
 CREATE INDEX IF NOT EXISTS idx_lgpd_ip_privado ON lgpd_audit(ip_privado);
@@ -1895,105 +1913,128 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             // ============================================================
-            // CASO 2: CONSULTA POR IPv6 (INDEPENDENTE - NÃO DEPENDE DE CGNAT)
-            // ============================================================
-            if (!empty($ipv6_busca)) {
-                $ipv6_normalizado = $ipv6_busca;
-                
-                $ipv6_clean = preg_replace('/\/\d+$/', '', $ipv6_busca);
-                
-                if (strpos($ipv6_clean, '::') !== false) {
-                    $parts = explode(':', $ipv6_clean);
-                    $count = count(array_filter($parts, 'strlen'));
-                    $missing = 8 - $count;
-                    $ipv6_clean = str_replace('::', ':' . str_repeat('0000:', $missing), $ipv6_clean);
-                    $ipv6_clean = rtrim($ipv6_clean, ':');
-                }
-                
-                $parts = explode(':', $ipv6_clean);
-                while (count($parts) < 8) {
-                    $parts[] = '0000';
-                }
-                
-                $prefixo_parts = array_slice($parts, 0, 4);
-                $prefixo = implode(':', $prefixo_parts) . '::/56';
-                $ipv6_normalizado = $prefixo;
-                
-                // ============================================================
-                // BUSCAR DIRETAMENTE NOS LOGS PELO IPv6 (INDEPENDENTE)
-                // ============================================================
-                $sql = "
-                    SELECT 
-                        data_hora,
-                        acao,
-                        ip_privado,
-                        porta_privada,
-                        ip_publico,
-                        porta_publica,
-                        ip_destino,
-                        porta_destino,
-                        protocolo,
-                        ipv6_cliente,
-                        login
-                    FROM cgnat_logs
-                    WHERE ipv6_cliente >>= ?::inet
-                    AND data_hora BETWEEN ? AND ?
-                    ORDER BY data_hora DESC
-                    LIMIT 1000
-                ";
-                
-                $stmt = $db->prepare($sql);
-                $stmt->execute([$ipv6_normalizado, $data_inicio, $data_fim]);
-                $resultados = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                $total = count($resultados);
-                
-                // ============================================================
-                // BUSCAR O CLIENTE NA TABELA clientes (OBRIGATÓRIO)
-                // ============================================================
-                $stmt_cliente = $db->prepare("
-                    SELECT 
-                        login, 
-                        nome, 
-                        ip_privado, 
-                        ipv6_prefix
-                    FROM clientes 
-                    WHERE UPPER(ipv6_prefix) = UPPER(?)
-                    LIMIT 1
-                ");
-                $stmt_cliente->execute([$ipv6_normalizado]);
-                $cliente_info = $stmt_cliente->fetch(PDO::FETCH_ASSOC);
-                
-                if ($cliente_info) {
-                    $cliente_encontrado = true;
-                    $cliente_login = $cliente_info['login'] ?? '';
-                    $cliente_nome = $cliente_info['nome'] ?? $cliente_login;
-                    $ip_privado = $cliente_info['ip_privado'] ?? null;
-                    $ipv6_prefix = $cliente_info['ipv6_prefix'] ?? null;
-                    
-                    if ($ip_privado) {
-                        $tipo_ip_info = identificarTipoIP($ip_privado);
-                    }
-                    
-                    $mensagem = "✅ Cliente identificado por IPv6: <strong>" . htmlspecialchars($cliente_nome) . "</strong>";
-                    $mensagem .= " | Login: <code>" . htmlspecialchars($cliente_login) . "</code>";
-                    $mensagem .= " | Prefixo: <code>" . htmlspecialchars($ipv6_prefix) . "</code>";
-                    
-                    if ($total > 0) {
-                        $mensagem .= "<br>📊 Possui {$total} registros CGNAT no período.";
-                    } else {
-                        $mensagem .= "<br>ℹ️ Cliente não possui logs CGNAT no período (IPv4 público ou sem tráfego).";
-                    }
-                } else {
-                    $cliente_encontrado = false;
-                    $cliente_nome = 'NAO IDENTIFICADO - Cliente sem IPv6 no Cisco';
-                    $cliente_login = '';
-                    $ip_privado = null;
-                    $ipv6_prefix = $ipv6_normalizado;
-                    $tipo_ip_info = null;
-                    $mensagem = "⚠️ Nenhum cliente encontrado com o prefixo IPv6: <code>" . htmlspecialchars($ipv6_normalizado) . "</code>";
-                    $mensagem .= "<br><small>Verifique se o script sync_ipv6_cisco.sh está rodando.</small>";
-                }
-            }
+// CASO 2: CONSULTA POR IPv6 (COM HISTÓRICO)
+// ============================================================
+if (!empty($ipv6_busca)) {
+    // NORMALIZAR IPv6 PARA PREFIXO /56
+    $ipv6_normalizado = $ipv6_busca;
+    
+    $ipv6_clean = preg_replace('/\/\d+$/', '', $ipv6_busca);
+    
+    if (strpos($ipv6_clean, '::') !== false) {
+        $parts = explode(':', $ipv6_clean);
+        $count = count(array_filter($parts, 'strlen'));
+        $missing = 8 - $count;
+        $ipv6_clean = str_replace('::', ':' . str_repeat('0000:', $missing), $ipv6_clean);
+        $ipv6_clean = rtrim($ipv6_clean, ':');
+    }
+    
+    $parts = explode(':', $ipv6_clean);
+    while (count($parts) < 8) {
+        $parts[] = '0000';
+    }
+    
+    $prefixo_parts = array_slice($parts, 0, 4);
+    $prefixo = implode(':', $prefixo_parts) . '::/56';
+    $ipv6_normalizado = $prefixo;
+    
+    // ============================================================
+    // BUSCAR HISTÓRICO DO IPv6 PARA A DATA CONSULTADA
+    // ============================================================
+    $sql = "
+        SELECT 
+            h.login,
+            h.ipv6_prefix,
+            h.data_inicio,
+            h.data_fim,
+            h.ativo,
+            c.nome,
+            c.ip_privado,
+            c.ipv6_address
+        FROM historico_ipv6 h
+        LEFT JOIN clientes c ON h.login = c.login
+        WHERE UPPER(h.ipv6_prefix) = UPPER(?)
+        AND h.data_inicio <= ?
+        AND (h.data_fim IS NULL OR h.data_fim >= ?)
+        LIMIT 1
+    ";
+    
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$ipv6_normalizado, $data_inicio, $data_inicio]);
+    $historico = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($historico) {
+        // 🔴 CLIENTE ENCONTRADO NO HISTÓRICO
+        $cliente_encontrado = true;
+        $cliente_login = $historico['login'] ?? '';
+        $cliente_nome = $historico['nome'] ?? $cliente_login;
+        $ip_privado = $historico['ip_privado'] ?? null;
+        $ipv6_prefix = $historico['ipv6_prefix'] ?? null;
+        
+        if ($ip_privado) {
+            $tipo_ip_info = identificarTipoIP($ip_privado);
+        }
+        
+        // Agora buscar logs CGNAT (se houver)
+        if ($ip_privado) {
+            $sql_logs = "
+                SELECT 
+                    data_hora,
+                    acao,
+                    ip_publico,
+                    porta_publica,
+                    ip_destino,
+                    porta_destino,
+                    protocolo,
+                    ipv6_cliente
+                FROM cgnat_logs
+                WHERE ip_privado = ?::inet
+                AND data_hora BETWEEN ? AND ?
+                ORDER BY data_hora DESC
+                LIMIT 50
+            ";
+            $stmt_logs = $db->prepare($sql_logs);
+            $stmt_logs->execute([$ip_privado, $data_inicio, $data_fim]);
+            $resultados = $stmt_logs->fetchAll(PDO::FETCH_ASSOC);
+            $total = count($resultados);
+        } else {
+            $resultados = [];
+            $total = 0;
+        }
+        
+        $periodo = date('d/m/Y H:i', strtotime($historico['data_inicio']));
+        if ($historico['data_fim']) {
+            $periodo .= " até " . date('d/m/Y H:i', strtotime($historico['data_fim']));
+        } else {
+            $periodo .= " até o momento";
+        }
+        
+        $mensagem = "✅ Cliente identificado por IPv6: <strong>" . htmlspecialchars($cliente_nome) . "</strong>";
+        $mensagem .= " | Login: <code>" . htmlspecialchars($cliente_login) . "</code>";
+        $mensagem .= " | Prefixo: <code>" . htmlspecialchars($ipv6_prefix) . "</code>";
+        $mensagem .= "<br>📅 Período do prefixo: " . $periodo;
+        
+        if ($total > 0) {
+            $mensagem .= "<br>📊 Possui {$total} registros CGNAT no período consultado.";
+        } else {
+            $mensagem .= "<br>ℹ️ Cliente não possui logs CGNAT no período consultado.";
+        }
+        
+    } else {
+        // ❌ CLIENTE NÃO ENCONTRADO NO HISTÓRICO
+        $cliente_encontrado = false;
+        $cliente_nome = 'NAO IDENTIFICADO - Cliente sem IPv6 no período';
+        $cliente_login = '';
+        $ip_privado = null;
+        $ipv6_prefix = $ipv6_normalizado;
+        $tipo_ip_info = null;
+        $resultados = [];
+        $total = 0;
+        $mensagem = "⚠️ Nenhum cliente encontrado com o prefixo IPv6: <code>" . htmlspecialchars($ipv6_normalizado) . "</code>";
+        $mensagem .= "<br><small>Verifique se o cliente usou este prefixo no período consultado.</small>";
+        $mensagem .= "<br><small>O prefixo pode ter sido atribuído depois desta data.</small>";
+    }
+}
             
             // ============================================================
             // SALVAR NA TABELA lgpd_audit
@@ -2991,20 +3032,35 @@ EOF
 chmod +x /usr/local/bin/sync_mkauth.sh
 
 # Script de Sincronização IPv6 Cisco
-cat > /usr/local/bin/sync_ipv6_cisco.sh << EOF
+print_header "15.5. CRIANDO SCRIPT DE SINCRONIZAÇÃO IPv6"
+
+cat > /usr/local/bin/sync_ipv6_cisco.sh << 'EOF'
 #!/bin/bash
-echo "\$(date): Iniciando sincronização IPv6 do Cisco..."
+# Script para sincronizar IPv6 do Cisco ASR com a tabela historico_ipv6
+
+echo "$(date): Iniciando sincronização IPv6 do Cisco..."
+echo "⏳ Aguarde, estamos sincronizando os dados com o Cisco..."
 
 CISCO_IP="${CISCO_IP}"
 CISCO_USER="${CISCO_USER}"
 CISCO_PASS="${CISCO_PASS}"
-TMP_FILE="/tmp/ipv6_binding_\$\$.txt"
+TMP_FILE="/tmp/ipv6_binding_$$.txt"
 
-sshpass -p "\$CISCO_PASS" ssh -o KexAlgorithms=+diffie-hellman-group14-sha1 -o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedAlgorithms=+ssh-rsa -o StrictHostKeyChecking=no "\$CISCO_USER@\$CISCO_IP" "show ipv6 dhcp binding | include Username|Prefix:" > "\$TMP_FILE" 2>/dev/null
+# Coletar dados do Cisco
+sshpass -p "$CISCO_PASS" ssh \
+    -o KexAlgorithms=+diffie-hellman-group14-sha1 \
+    -o HostKeyAlgorithms=+ssh-rsa \
+    -o PubkeyAcceptedAlgorithms=+ssh-rsa \
+    -o StrictHostKeyChecking=no \
+    "$CISCO_USER@$CISCO_IP" "show ipv6 dhcp binding | include Username|Prefix:" > "$TMP_FILE" 2>/dev/null
 
-if [ ! -s "\$TMP_FILE" ]; then
+if [ ! -s "$TMP_FILE" ]; then
     echo "❌ ERRO: Não foi possível coletar dados do Cisco"
-    rm -f "\$TMP_FILE"
+    echo "Verifique:"
+    echo "  - O Cisco ASR está acessível em $CISCO_IP?"
+    echo "  - As credenciais estão corretas?"
+    echo "  - O comando 'show ipv6 dhcp binding' funciona?"
+    rm -f "$TMP_FILE"
     exit 1
 fi
 
@@ -3015,27 +3071,60 @@ login=""
 prefix=""
 
 while IFS= read -r line; do
-    line=\$(echo "\$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//' | tr -d '\r')
-    if echo "\$line" | grep -q "^Username :"; then
-        login=\$(echo "\$line" | sed 's/^Username : //' | tr -d '\r')
+    line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\r')
+    
+    if echo "$line" | grep -q "^Username :"; then
+        login=$(echo "$line" | sed 's/^Username : //' | tr -d '\r')
     fi
-    if echo "\$line" | grep -q "^Prefix:"; then
-        prefix=\$(echo "\$line" | sed 's/^Prefix: //' | awk '{print \$1}' | tr -d '\r')
-        if [ ! -z "\$login" ] && [ ! -z "\$prefix" ]; then
+    
+    if echo "$line" | grep -q "^Prefix:"; then
+        prefix=$(echo "$line" | sed 's/^Prefix: //' | awk '{print $1}' | tr -d '\r')
+        
+        if [ ! -z "$login" ] && [ ! -z "$prefix" ]; then
+            # INSERIR HISTÓRICO em vez de atualizar
             sudo -u postgres psql -d cgnat_logs -q << PSQL 2>/dev/null
-UPDATE clientes SET ipv6_prefix = '\$prefix', ipv6_atualizado = NOW() WHERE login = '\$login';
+-- 1. Fechar registros anteriores do mesmo login (se mudou de prefixo)
+UPDATE historico_ipv6 
+SET data_fim = NOW(), 
+    ativo = false,
+    atualizado_em = NOW()
+WHERE login = '$login' 
+AND ativo = true 
+AND ipv6_prefix != '$prefix';
+
+-- 2. Verificar se já existe um registro ativo com este prefixo
+INSERT INTO historico_ipv6 (login, ipv6_prefix, data_inicio, ativo)
+SELECT '$login', '$prefix', NOW(), true
+WHERE NOT EXISTS (
+    SELECT 1 FROM historico_ipv6 
+    WHERE login = '$login' 
+    AND ipv6_prefix = '$prefix' 
+    AND ativo = true
+);
+
+-- 3. Atualizar a tabela clientes (dados atuais para consulta rápida)
+UPDATE clientes 
+SET ipv6_prefix = '$prefix',
+    ipv6_atualizado = NOW()
+WHERE login = '$login';
 PSQL
-            if [ \$? -eq 0 ]; then
-                UPDATED=\$((UPDATED + 1))
+            if [ $? -eq 0 ]; then
+                UPDATED=$((UPDATED + 1))
+                echo "  ✅ $login -> $prefix"
             fi
         fi
     fi
-done < "\$TMP_FILE"
+done < "$TMP_FILE"
 
-echo "✅ Sincronização IPv6 concluída. Clientes atualizados: \$UPDATED"
-rm -f "\$TMP_FILE"
+echo "✅ Sincronização IPv6 concluída. Clientes atualizados: $UPDATED"
+echo "📊 Total de clientes com IPv6:"
+sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(DISTINCT login) FROM historico_ipv6 WHERE ativo = true;" 2>/dev/null | xargs
+
+rm -f "$TMP_FILE"
 EOF
+
 chmod +x /usr/local/bin/sync_ipv6_cisco.sh
+print_success "Script de sincronização IPv6 com histórico criado"
 
 # Script de Monitoramento do /dev/shm
 cat > /usr/local/bin/clean_shm.sh << 'EOF'
@@ -3164,6 +3253,45 @@ else
     print_warning "Sincronização IPv6 inicial falhou. O cron tentará novamente a cada 5 minutos."
     print_info "Você pode executar manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
 fi
+
+# ============================================================
+# 15.6.2. MIGRAR DADOS EXISTENTES PARA HISTÓRICO
+# ============================================================
+print_header "15.6.2. MIGRANDO DADOS IPv6 PARA HISTÓRICO"
+
+print_info "Migrando dados existentes da tabela clientes para historico_ipv6..."
+
+sudo -u postgres psql -d cgnat_logs << 'SQL'
+-- Migrar dados existentes para a tabela historico_ipv6
+INSERT INTO historico_ipv6 (login, ipv6_prefix, ipv6_address, data_inicio, ativo)
+SELECT 
+    c.login, 
+    c.ipv6_prefix, 
+    c.ipv6_address,
+    COALESCE(c.ipv6_atualizado, NOW()) as data_inicio,
+    true as ativo
+FROM clientes c 
+WHERE c.ipv6_prefix IS NOT NULL
+AND NOT EXISTS (
+    SELECT 1 FROM historico_ipv6 h 
+    WHERE h.login = c.login 
+    AND h.ipv6_prefix = c.ipv6_prefix
+);
+
+-- Mostrar quantos registros foram migrados
+DO $$
+DECLARE
+    total_migrado INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO total_migrado FROM historico_ipv6;
+    RAISE NOTICE 'Total de registros no histórico IPv6: %', total_migrado;
+END $$;
+SQL
+
+TOTAL_HISTORICO=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM historico_ipv6;" 2>/dev/null | xargs)
+print_info "Total de registros no histórico IPv6: ${TOTAL_HISTORICO:-0}"
+
+print_success "Migração de histórico IPv6 concluída"
 
 # ============================================================
 # 15.7. CONFIGURAR CRON PARA IPv6
