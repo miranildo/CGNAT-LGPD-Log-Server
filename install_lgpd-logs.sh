@@ -108,13 +108,27 @@ print_success "Timezone configurado para $TIMEZONE"
 # ============================================================
 print_header "2.5. CONFIGURANDO /dev/shm"
 
-# Aumentar para 8GB
+# Verificar se /dev/shm está montado
+if mount | grep -q "/dev/shm"; then
+    print_info "/dev/shm já está montado"
+else
+    print_warning "/dev/shm não montado. Montando..."
+    mount -t tmpfs -o size=8G tmpfs /dev/shm
+fi
+
+# Aumentar para 8GB (ignorar erros se já estiver montado)
 mount -o remount,size=8G /dev/shm 2>/dev/null || true
 
-# Tornar permanente
+# Tornar permanente no fstab
 if ! grep -q "tmpfs /dev/shm" /etc/fstab; then
     echo "tmpfs /dev/shm tmpfs defaults,size=8G 0 0" >> /etc/fstab
+    print_info "Entrada adicionada no /etc/fstab"
 fi
+
+# Limpar arquivos órfãos
+rm -rf /dev/shm/PostgreSQL.* 2>/dev/null
+rm -rf /dev/shm/sem.* 2>/dev/null
+rm -rf /dev/shm/.s.PGSQL.* 2>/dev/null
 
 print_success "/dev/shm configurado com 8GB"
 df -h /dev/shm
@@ -259,16 +273,16 @@ print_success "Diretórios criados"
 # ============================================================
 print_header "5.5. VERIFICANDO /dev/shm"
 
-USO_SHM=$(df -h /dev/shm | grep -v Filesystem | awk '{print $5}' | sed 's/%//')
-print_info "Uso do /dev/shm: ${USO_SHM}%"
+# Limpar arquivos órfãos do PostgreSQL
+print_info "Limpando arquivos temporários do PostgreSQL..."
+rm -rf /dev/shm/PostgreSQL.* 2>/dev/null
+rm -rf /dev/shm/sem.* 2>/dev/null
+rm -rf /dev/shm/.s.PGSQL.* 2>/dev/null
 
-if [ $USO_SHM -gt 90 ]; then
-    print_warning "/dev/shm com $USO_SHM% de uso - limpando..."
-    rm -rf /dev/shm/PostgreSQL.* 2>/dev/null
-    rm -rf /dev/shm/sem.* 2>/dev/null
-fi
-
+# Mostrar status atual
 df -h /dev/shm
+
+print_success "/dev/shm verificado e limpo"
 
 # ============================================================
 # 6. CONFIGURAR POSTGRESQL (COMPATÍVEL DEBIAN 12 E 13)
