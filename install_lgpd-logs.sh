@@ -1693,7 +1693,7 @@ include 'menu.php';
                             <th>IP</th>
                             <th>Porta</th>
                             <th>Cliente</th>
-                            <th>IP Privado</th>
+                            <th>IPv4</th>
                             <th>IPv6</th>
                             <th>Log Original</th>
                         </tr>
@@ -1960,7 +1960,7 @@ if (!empty($ipv6_busca)) {
     ";
     
     $stmt = $db->prepare($sql);
-    $stmt->execute([$ipv6_normalizado, $data_inicio, $data_inicio]);
+    $stmt->execute([$ipv6_normalizado, $data_fim, $data_inicio]);
     $historico = $stmt->fetch(PDO::FETCH_ASSOC);
     
     if ($historico) {
