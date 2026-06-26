@@ -2562,7 +2562,7 @@ include 'menu.php';
                     <th>IP</th>
                     <th>Porta</th>
                     <th>Cliente</th>
-                    <th>IP Privado</th>
+                    <th>IPv4</th>
                     <th>IPv6</th>
                     <th>Motivo</th>
                 </tr>
