@@ -3058,6 +3058,30 @@ fi
 print_success "Sincronização inicial finalizada"
 
 # ============================================================
+# 15.6. EXECUTAR SINCRONIZAÇÃO IPv6 INICIAL
+# ============================================================
+print_header "15.6. EXECUTANDO SINCRONIZAÇÃO IPv6 INICIAL"
+
+print_info "Coletando IPv6 dos clientes no Cisco ASR..."
+
+if [ -f /usr/local/bin/sync_ipv6_cisco.sh ]; then
+    /usr/local/bin/sync_ipv6_cisco.sh
+    
+    if [ $? -eq 0 ]; then
+        print_success "Sincronização IPv6 inicial concluída com sucesso!"
+        TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
+        print_info "Total de clientes com IPv6: ${TOTAL_IPV6:-0}"
+    else
+        print_warning "Sincronização IPv6 inicial falhou. Execute manualmente:"
+        print_info "/usr/local/bin/sync_ipv6_cisco.sh"
+    fi
+else
+    print_warning "Script sync_ipv6_cisco.sh não encontrado."
+fi
+
+print_success "Sincronização IPv6 inicial finalizada"
+
+# ============================================================
 # 16. CONCEDER PERMISSÕES
 # ============================================================
 print_header "16. CONCEDER PERMISSÕES"
