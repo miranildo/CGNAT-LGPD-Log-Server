@@ -970,7 +970,7 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 }
 </style>
 <div class="navbar-cgnat">
-    <a href="index.php" class="logo">📡 CGNAT LGPD</a>
+    <a href="index.php" class="logo">📡 WEBLINE TELECOM - LGPD LOGS SERVER</a>
     <div class="nav-links">
         <span class="user-info">👤 <?php echo htmlspecialchars($usuario_nome); ?></span>
         <a href="index.php" class="<?php echo $current_page == 'index.php' ? 'active' : ''; ?>">🏠 Início</a>
