@@ -2982,15 +2982,17 @@ PART
 chmod +x /usr/local/bin/create_cgnat_partition.sh
 
 # Script de Sincronização MK-AUTH
-print_header "CRIANDO SCRIPT DE SINCRONIZAÇÃO MK-AUTH"
+# ============================================================
+# 15.5. SCRIPT DE SINCRONIZAÇÃO MK-AUTH (CORRIGIDO)
+# ============================================================
+print_header "15.5. CRIANDO SCRIPT DE SINCRONIZAÇÃO MK-AUTH"
 
-cat > /usr/local/bin/sync_mkauth.sh << 'EOF'
+cat > /usr/local/bin/sync_mkauth.sh << EOF
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
-# Mantém os campos ipv6_prefix, ipv6_address e ipv6_atualizado
 # NUNCA DELETA clientes - apenas marca como inativo
 
-echo "$(date): Iniciando sincronização com MK-AUTH..."
+echo "\$(date): Iniciando sincronização com MK-AUTH..."
 
 # Usando as variáveis do script principal
 MK_AUTH_IP="${MK_AUTH_IP}"
@@ -3000,17 +3002,17 @@ DB_USER="root"
 DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
 
-TMP_FILE="/tmp/radacct_export_$$.csv"
+TMP_FILE="/tmp/radacct_export_\$\$.csv"
 
-echo "Conectando a ${MK_AUTH_IP}..."
+echo "Conectando a \${MK_AUTH_IP}..."
 
-sshpass -p "${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR ${MK_AUTH_USER}@${MK_AUTH_IP} \
-"mysql -u ${DB_USER} -p${DB_PASS} -B -N -e '
+sshpass -p "\${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \${MK_AUTH_USER}@\${MK_AUTH_IP} \
+"mysql -u \${DB_USER} -p\${DB_PASS} -B -N -e '
 SELECT 
     login,
     nome,
     ip
-FROM ${DB_NAME}.sis_cliente
+FROM \${DB_NAME}.sis_cliente
 WHERE cli_ativado = \"s\"
 AND ip IS NOT NULL
 AND ip != \"\"
@@ -3019,15 +3021,15 @@ SELECT
     username,
     nome,
     ip
-FROM ${DB_NAME}.sis_adicional
+FROM \${DB_NAME}.sis_adicional
 WHERE bloqueado = \"nao\"
 AND ip IS NOT NULL
 AND ip != \"\"
-'" > "${TMP_FILE}"
+'" > "\${TMP_FILE}"
 
-if [ -s "${TMP_FILE}" ]; then
-    CLIENTES=$(wc -l < "${TMP_FILE}")
-    echo "Dados exportados do MK-AUTH: ${CLIENTES} clientes"
+if [ -s "\${TMP_FILE}" ]; then
+    CLIENTES=\$(wc -l < "\${TMP_FILE}")
+    echo "Dados exportados do MK-AUTH: \${CLIENTES} clientes"
     
     sudo -u postgres psql -d cgnat_logs << SQL
     -- Criar tabela temporária com os dados novos
@@ -3038,7 +3040,7 @@ if [ -s "${TMP_FILE}" ]; then
     );
     
     COPY temp_clientes (login, nome, ip_privado)
-    FROM '${TMP_FILE}'
+    FROM '\${TMP_FILE}'
     DELIMITER E'\t'
     CSV;
     
@@ -3047,7 +3049,6 @@ if [ -s "${TMP_FILE}" ]; then
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS data_inativacao TIMESTAMP;
     
     -- Atualizar apenas os campos que vêm do MK-AUTH
-    -- Mantendo ipv6_prefix, ipv6_address e ipv6_atualizado
     UPDATE clientes c
     SET 
         nome = t.nome,
@@ -3068,7 +3069,7 @@ if [ -s "${TMP_FILE}" ]; then
     LEFT JOIN clientes c ON t.login = c.login
     WHERE c.login IS NULL;
     
-    -- 🔴 CORREÇÃO: Em vez de DELETE, marcar como inativo
+    -- Marcar como inativo
     UPDATE clientes 
     SET ativo = false, 
         data_inativacao = NOW()
@@ -3080,19 +3081,19 @@ if [ -s "${TMP_FILE}" ]; then
     FROM clientes;
 SQL
     
-    rm -f "${TMP_FILE}"
+    rm -f "\${TMP_FILE}"
 else
     echo "ERRO: Não foi possível exportar dados do MK-AUTH"
 fi
 
-echo "$(date): Sincronização MK-AUTH concluída."
+echo "\$(date): Sincronização MK-AUTH concluída."
 EOF
 
 chmod +x /usr/local/bin/sync_mkauth.sh
-print_success "Script de sincronização MK-AUTH corrigido (sem deletar)"
+print_success "Script de sincronização MK-AUTH criado"
 
 # Script de Sincronização IPv6 Cisco
-print_header "15.5. CRIANDO SCRIPT DE SINCRONIZAÇÃO IPv6"
+print_header "CRIANDO SCRIPT DE SINCRONIZAÇÃO IPv6"
 
 cat > /usr/local/bin/sync_ipv6_cisco.sh << EOF
 #!/bin/bash
