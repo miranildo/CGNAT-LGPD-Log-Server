@@ -3259,9 +3259,14 @@ mostrar_progresso() {
 /usr/local/bin/sync_ipv6_cisco.sh &
 PID=$!
 
-# Estimar total de clientes
-TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
-TOTAL_CLIENTES=${TOTAL_CLIENTES:-629}
+# Estimar total de clientes ATIVOS (para a barra de progresso)
+TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
+
+# Se não conseguir obter, usar 0
+if [ -z "$TOTAL_CLIENTES" ] || [ "$TOTAL_CLIENTES" -eq 0 ]; then
+    TOTAL_CLIENTES=0
+    print_warning "Não foi possível obter total de clientes ativos. A barra não será exibida."
+fi
 
 # Barra de progresso
 ATUAL=0
