@@ -11,7 +11,7 @@ Sistema para coletar, armazenar e consultar logs de NAT do Cisco ASR1001-X, com 
 ## ⚡ Instalação Rápida
 
 ```bash
-bash <(curl -s https://raw.githubusercontent.com/miranildo/CGNAT-LGPD-Log-Server/main/install_cgnat.sh)
+bash <(curl -s https://raw.githubusercontent.com/miranildo/CGNAT-LGPD-Log-Server/main/install_lgpd-logs.sh)
 ```
 
 ## ⚡ Instalação Local
