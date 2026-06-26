@@ -3235,15 +3235,21 @@ echo "⏳ Aguardando sincronização com o Cisco ASR..."
 echo "📡 Conectando ao Cisco ASR em ${CISCO_IP}..."
 echo ""
 
-# Função para mostrar barra de progresso
+# 🔴 CORREÇÃO: Função mostrar_progresso com verificação de divisão por zero
 mostrar_progresso() {
     local atual=$1
     local total=$2
+    
+    # Se total for 0 ou vazio, mostrar mensagem sem barra
+    if [ -z "$total" ] || [ "$total" -eq 0 ]; then
+        printf "\r   ⏳ Processando... (%d clientes sincronizados)" "$atual"
+        return
+    fi
+    
     local tamanho=50
     local progresso=$((atual * tamanho / total))
     local restante=$((tamanho - progresso))
     
-    # Construir a barra
     local barra=""
     for ((i=0; i<progresso; i++)); do
         barra="${barra}█"
@@ -3259,13 +3265,13 @@ mostrar_progresso() {
 /usr/local/bin/sync_ipv6_cisco.sh &
 PID=$!
 
-# Estimar total de clientes ATIVOS (para a barra de progresso)
+# 🔴 CORREÇÃO: Buscar APENAS clientes ATIVOS
 TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
 
-# Se não conseguir obter, usar 0
+# Se não conseguir obter ou for 0, definir como 0 (sem barra)
 if [ -z "$TOTAL_CLIENTES" ] || [ "$TOTAL_CLIENTES" -eq 0 ]; then
     TOTAL_CLIENTES=0
-    print_warning "Não foi possível obter total de clientes ativos. A barra não será exibida."
+    print_warning "Não foi possível obter total de clientes ativos. Acompanhando apenas o número processado."
 fi
 
 # Barra de progresso
@@ -3275,17 +3281,20 @@ echo "📊 Progresso da sincronização:"
 echo ""
 
 while kill -0 $PID 2>/dev/null; do
-    # Buscar quantos clientes já foram atualizados
+    # Buscar quantos clientes já foram atualizados (nos últimos 5 minutos)
     ATUAL=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_atualizado IS NOT NULL AND ipv6_atualizado > NOW() - INTERVAL '5 minutes';" 2>/dev/null | xargs)
     ATUAL=${ATUAL:-0}
     
-    # Limitar ao total
-    if [ $ATUAL -gt $TOTAL_CLIENTES ]; then
-        ATUAL=$TOTAL_CLIENTES
+    # Se TOTAL_CLIENTES for 0, mostrar apenas o número processado
+    if [ "$TOTAL_CLIENTES" -eq 0 ]; then
+        printf "\r   ⏳ Processando... (%d clientes sincronizados)" "$ATUAL"
+    else
+        # Limitar ao total
+        if [ $ATUAL -gt $TOTAL_CLIENTES ]; then
+            ATUAL=$TOTAL_CLIENTES
+        fi
+        mostrar_progresso $ATUAL $TOTAL_CLIENTES
     fi
-    
-    # Mostrar barra de progresso (atualiza a linha)
-    mostrar_progresso $ATUAL $TOTAL_CLIENTES
     
     sleep 2
 done
@@ -3294,9 +3303,13 @@ done
 wait $PID
 STATUS=$?
 
-# Finalizar barra com 100%
+# Finalizar
 echo ""
-mostrar_progresso $TOTAL_CLIENTES $TOTAL_CLIENTES
+if [ "$TOTAL_CLIENTES" -eq 0 ]; then
+    echo "   ✅ Sincronização concluída! Clientes processados: $ATUAL"
+else
+    mostrar_progresso $TOTAL_CLIENTES $TOTAL_CLIENTES
+fi
 echo ""
 echo ""
 
@@ -3311,7 +3324,7 @@ TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cli
 
 if [ $STATUS -eq 0 ]; then
     echo "✅ Sincronização IPv6 concluída em ${MINUTOS}m${SEGUNDOS}s!"
-    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0} de ${TOTAL_CLIENTES}"
+    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0}"
     print_success "Sincronização IPv6 inicial finalizada"
 else
     echo "❌ Sincronização IPv6 inicial falhou em ${MINUTOS}m${SEGUNDOS}s"
