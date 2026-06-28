@@ -1536,7 +1536,7 @@ include 'menu.php';
                 <span style="color:#aaa;font-size:11px;">(boot: <?php echo $uptime_info['boot']; ?>)</span>
             </div>
             <div class="version">
-                📡 WEBLINE TELECOM - CGNAT LGPD v2.0
+                📡 WEBLINE TELECOM - LGPD CGNAT LOGS v1.0
             </div>
         </div>
     </div>
