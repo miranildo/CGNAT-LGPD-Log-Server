@@ -3196,7 +3196,7 @@ chmod +x /usr/local/bin/clean_shm.sh
 print_success "Scripts criados com sucesso!"
 
 # ============================================================
-# 15.5. EXECUTAR SINCRONIZAÇÃO INICIAL
+# 15.5. EXECUTAR SINCRONIZAÇÃO INICIAL MKAUTH
 # ============================================================
 print_header "15.5. EXECUTANDO SINCRONIZAÇÃO INICIAL"
 
@@ -3214,7 +3214,7 @@ fi
 print_success "Sincronização inicial finalizada"
 
 # ============================================================
-# 15.6.1. EXECUTAR SINCRONIZAÇÃO IPv6 INICIAL
+# 15.6.1. EXECUTAR SINCRONIZAÇÃO IPv6 INICIAL CISCO
 # ============================================================
 print_header "15.6.1. EXECUTANDO SINCRONIZAÇÃO IPv6 INICIAL"
 
