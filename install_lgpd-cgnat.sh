@@ -1475,11 +1475,16 @@ include 'menu.php';
                 <h1>👋 Bem-vindo, <span class="user"><?php echo htmlspecialchars($_SESSION['nome_completo']); ?></span></h1>
                 <p>Sistema de Consulta CGNAT para atendimento à LGPD.</p>
                 <div class="perfil">Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong></div>
+                <!-- ============================================================
+                     COMENTAR ESTE BLOCO - HEADER (UPTIME)
+                     ============================================================ -->
+                <!--
                 <div class="uptime">
-                    <span class="label">🟢 Online há </span>
-                    <span class="time" id="uptime_display"><?php echo $uptime_info['uptime']; ?></span>
-                    <span style="color:#aaa;font-size:11px;margin-left:8px;">(desde <?php echo $uptime_info['boot']; ?>)</span>
+                <span class="label">🟢 Online há </span>
+                <span class="time" id="uptime_display"><?php echo $uptime_info['uptime']; ?></span>
+                <span style="color:#aaa;font-size:11px;margin-left:8px;">(desde <?php echo $uptime_info['boot']; ?>)</span>
                 </div>
+                -->
             </div>
 
             <div class="disco-card-header">
