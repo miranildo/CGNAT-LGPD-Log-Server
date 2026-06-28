@@ -1,20 +1,10 @@
 #!/bin/bash
 # ============================================================
-# SCRIPT DE INSTALAÇÃO - SISTEMA CGNAT LGPD (VERSÃO 2.0 CORRIGIDA)
+# SCRIPT DE INSTALAÇÃO - SISTEMA CGNAT LGPD (VERSÃO 1.0
 # ============================================================
-# Versão: 2.0 - Debian 12 e 13 x64
+# Versão: 1.0 - Debian 12 e 13 x64
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
 # Router: Cisco ASR-1001X
-# ============================================================
-# CORREÇÕES APLICADAS:
-#   1. raw.log movido para DISCO (não mais em /dev/shm)
-#   2. Permissões SELECT corrigidas para o parser
-#   3. /dev/shm aumentado para 16GB
-#   4. Autovacuum otimizado no postgresql.conf
-#   5. PostgreSQL fixado na versão 15
-#   6. Sincronização MK-AUTH (IPv4)
-#   7. Sincronização IPv6 Cisco ASR
-#   8. Histórico IPv6 para consultas independentes
 # ============================================================
 
 set -e
