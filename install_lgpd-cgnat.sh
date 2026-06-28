@@ -3118,7 +3118,7 @@ WHERE login = '\$login';
 PSQL
             if [ \$? -eq 0 ]; then
                 UPDATED=\$((UPDATED + 1))
-                echo "  ✅ \$login -> \$prefix"
+                //echo "  ✅ \$login -> \$prefix"
             fi
         fi
     fi
