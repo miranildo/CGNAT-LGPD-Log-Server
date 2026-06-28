@@ -1587,10 +1587,10 @@ include 'menu.php';
         updateUptime();
     })();
     
-    // Auto-refresh a cada 30 segundos (para outros dados)
+    // Auto-refresh a cada 5 segundos (para outros dados)
     setTimeout(function() {
         location.reload();
-    }, 30000);
+    }, 5000);
     </script>
 </body>
 </html>
