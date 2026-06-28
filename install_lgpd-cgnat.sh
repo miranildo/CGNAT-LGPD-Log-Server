@@ -500,15 +500,13 @@ GRANT SELECT ON vw_cgnat_logs_count TO cgnat_parser;
 GRANT SELECT ON vw_cgnat_logs_count TO cgnat_admin;
 
 -- ============================================================
--- AUTOVACUUM OTIMIZADO PARA CADA PARTIÇÃO
+-- AUTOVACUUM OTIMIZADO (SINTAXE CORRETA!)
 -- ============================================================
-ALTER TABLE cgnat_logs SET (
-    autovacuum_vacuum_scale_factor = 0.01,
-    autovacuum_vacuum_threshold = 1000,
-    autovacuum_analyze_scale_factor = 0.005,
-    autovacuum_freeze_min_age = 100000000,
-    autovacuum_freeze_max_age = 500000000
-);
+ALTER TABLE cgnat_logs SET (autovacuum_vacuum_scale_factor = 0.01);
+ALTER TABLE cgnat_logs SET (autovacuum_vacuum_threshold = 1000);
+ALTER TABLE cgnat_logs SET (autovacuum_analyze_scale_factor = 0.005);
+ALTER TABLE cgnat_logs SET (autovacuum_freeze_min_age = 100000000);
+ALTER TABLE cgnat_logs SET (autovacuum_freeze_max_age = 500000000);
 
 -- ============================================================
 -- CRIAR PARTIÇÕES
@@ -535,8 +533,12 @@ BEGIN
             EXECUTE format('CREATE INDEX %I ON %I(ip_privado)', 'idx_' || nome_particao || '_ip_priv', nome_particao);
             EXECUTE format('CREATE INDEX %I ON %I(data_hora)', 'idx_' || nome_particao || '_data', nome_particao);
             
-            -- Autovacuum para cada partição
-            EXECUTE format('ALTER TABLE %I SET (autovacuum_vacuum_scale_factor = 0.01, autovacuum_vacuum_threshold = 1000, autovacuum_analyze_scale_factor = 0.005, autovacuum_freeze_min_age = 100000000, autovacuum_freeze_max_age = 500000000)', nome_particao);
+            -- Autovacuum para cada partição (sintaxe correta!)
+            EXECUTE format('ALTER TABLE %I SET (autovacuum_vacuum_scale_factor = 0.01)', nome_particao);
+            EXECUTE format('ALTER TABLE %I SET (autovacuum_vacuum_threshold = 1000)', nome_particao);
+            EXECUTE format('ALTER TABLE %I SET (autovacuum_analyze_scale_factor = 0.005)', nome_particao);
+            EXECUTE format('ALTER TABLE %I SET (autovacuum_freeze_min_age = 100000000)', nome_particao);
+            EXECUTE format('ALTER TABLE %I SET (autovacuum_freeze_max_age = 500000000)', nome_particao);
         END IF;
     END LOOP;
 END $$;
@@ -897,7 +899,7 @@ print_header "15. CRIANDO SCRIPTS ÚTEIS"
 print_success "Scripts criados"
 
 # ============================================================
-# 16. AJUSTAR PERMISSÕES FINAIS
+# 16. AJUSTANDO PERMISSÕES FINAIS
 # ============================================================
 print_header "16. AJUSTANDO PERMISSÕES FINAIS"
 
@@ -905,12 +907,64 @@ chown -R www-data:www-data /var/www/html/cgnat/ 2>/dev/null || true
 chmod -R 755 /var/www/html/cgnat/ 2>/dev/null || true
 chmod 644 /var/www/html/cgnat/*.php 2>/dev/null || true
 
-# Garantir permissões do raw.log
+# ============================================================
+# CORREÇÃO: PERMISSÕES DO RAW.LOG (syslog:adm)
+# ============================================================
+# Criar raw.log no disco
 touch /var/log/cgnat/raw.log
-chown syslog:adm /var/log/cgnat/raw.log
+
+# Verificar qual grupo de logs existe
+if getent group adm >/dev/null 2>&1; then
+    # Debian/Ubuntu padrão
+    chown syslog:adm /var/log/cgnat/raw.log 2>/dev/null || chown root:adm /var/log/cgnat/raw.log
+else
+    # Fallback
+    chown syslog:syslog /var/log/cgnat/raw.log 2>/dev/null || chown root:root /var/log/cgnat/raw.log
+fi
 chmod 640 /var/log/cgnat/raw.log
 
-# Iniciar parser
+# Garantir que o diretório existe e tem permissões corretas
+chown -R syslog:adm /var/log/cgnat 2>/dev/null || chown -R root:root /var/log/cgnat
+chmod 755 /var/log/cgnat
+
+# ============================================================
+# CORREÇÃO: VERIFICAR SE O USUÁRIO CGNAT_PARSER TEM SELECT
+# ============================================================
+sudo -u postgres psql -d cgnat_logs -c "GRANT SELECT ON clientes TO cgnat_parser;" 2>/dev/null || true
+sudo -u postgres psql -d cgnat_logs -c "GRANT SELECT ON pppoe_sessoes TO cgnat_parser;" 2>/dev/null || true
+sudo -u postgres psql -d cgnat_logs -c "GRANT SELECT ON historico_ipv6 TO cgnat_parser;" 2>/dev/null || true
+
+# ============================================================
+# CORREÇÃO: VERIFICAR CONFIGURAÇÕES DE AUTOVACUUM
+# ============================================================
+sudo -u postgres psql -d cgnat_logs << 'SQL' 2>/dev/null || true
+DO $$
+DECLARE
+    part RECORD;
+BEGIN
+    -- Corrigir tabela principal
+    ALTER TABLE cgnat_logs SET (autovacuum_vacuum_scale_factor = 0.01);
+    ALTER TABLE cgnat_logs SET (autovacuum_vacuum_threshold = 1000);
+    ALTER TABLE cgnat_logs SET (autovacuum_analyze_scale_factor = 0.005);
+    ALTER TABLE cgnat_logs SET (autovacuum_freeze_min_age = 100000000);
+    ALTER TABLE cgnat_logs SET (autovacuum_freeze_max_age = 500000000);
+    
+    -- Corrigir partições
+    FOR part IN (
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE tablename LIKE 'cgnat_logs_%'
+    ) LOOP
+        EXECUTE format('ALTER TABLE %I SET (autovacuum_vacuum_scale_factor = 0.01)', part.tablename);
+        EXECUTE format('ALTER TABLE %I SET (autovacuum_vacuum_threshold = 1000)', part.tablename);
+        EXECUTE format('ALTER TABLE %I SET (autovacuum_analyze_scale_factor = 0.005)', part.tablename);
+        EXECUTE format('ALTER TABLE %I SET (autovacuum_freeze_min_age = 100000000)', part.tablename);
+        EXECUTE format('ALTER TABLE %I SET (autovacuum_freeze_max_age = 500000000)', part.tablename);
+    END LOOP;
+END $$;
+SQL
+
+# Iniciar serviços
 systemctl restart cgnat-parser 2>/dev/null || true
 systemctl restart apache2 2>/dev/null || true
 
