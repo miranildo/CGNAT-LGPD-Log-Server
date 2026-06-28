@@ -60,6 +60,10 @@ CISCO_IP="190.196.243.250"
 CISCO_USER="admin"
 CISCO_PASS="Wbt077171"
 TIMEZONE="America/Recife"
+TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
+TELEGRAM_CHAT_ID="-1003792217019"
+TELEGRAM_ENVIO="SIM"
+MAX_TENTATIVAS=3
 
 # ============================================================
 # INÍCIO
@@ -3582,6 +3586,8 @@ chmod +x /usr/local/bin/monitor_cgnat.sh
 print_success "Scripts criados com sucesso!"
 
 # Script de Monitoramento de espaço em disco Alertas Telegram
+print_header "CRIANDO SCRIPT DE ALERTA TELEGRAM"
+
 cat > /usr/local/bin/check_space.sh << 'EOF'
 #!/bin/bash
 # ============================================================
@@ -3857,9 +3863,9 @@ case "$1" in
 esac
 EOF
 
-chmod +x /usr/local/bin/check_space.sh
+chmod +x /usr/local/bin/check_space.s
 
-print_success "Scripts criados com sucesso!"
+print_success "Script de alerta Telegram criado com sucesso!"
 
 # ============================================================
 # 15.5. EXECUTAR SINCRONIZAÇÃO INICIAL MKAUTH
