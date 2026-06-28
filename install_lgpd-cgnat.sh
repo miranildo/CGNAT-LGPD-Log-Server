@@ -522,7 +522,7 @@ INSERT INTO usuarios (usuario, senha_hash, nome_completo, perfil) VALUES
 ON CONFLICT (usuario) DO NOTHING;
 
 -- ============================================================
--- PERMISSÕES CORRETAS (COM SELECT)
+-- PERMISSÕES CORRETAS (COM SELECT + SEQUENCE)
 -- ============================================================
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO cgnat_admin;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO cgnat_admin;
@@ -538,6 +538,11 @@ GRANT SELECT ON clientes TO cgnat_parser;
 GRANT SELECT ON pppoe_sessoes TO cgnat_parser;
 GRANT SELECT ON historico_ipv6 TO cgnat_parser;
 GRANT SELECT ON vw_cgnat_logs_count TO cgnat_parser;
+
+-- ============================================================
+-- CORREÇÃO: PERMISSÃO NA SEQUENCE (PARA O ID AUTOMÁTICO)
+-- ============================================================
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO cgnat_parser;
 
 GRANT SELECT ON vw_cgnat_logs_count TO cgnat_admin;
 
@@ -571,7 +576,7 @@ BEGIN
 END $$;
 EOF
 
-print_success "Tabelas criadas com permissões corrigidas"
+print_success "Tabelas criadas com permissões corrigidas (incluindo SEQUENCE)"
 
 # ============================================================
 # 9. AMBIENTE PYTHON
@@ -2723,7 +2728,7 @@ ADMIN_PHP
 print_success "TODOS os arquivos PHP criados com sucesso!"
 
 # ============================================================
-# 13. CONFIGURAR RSYSLOG (RAW.LOG NO DISCO!)
+# 13. CONFIGURAR RSYSLOG (CORRIGIDO - SEM IMUDPServerTimeStamp)
 # ============================================================
 print_header "13. CONFIGURANDO RSYSLOG"
 
@@ -2732,11 +2737,10 @@ mkfifo /var/run/cgnat.pipe 2>/dev/null || true
 chmod 666 /var/run/cgnat.pipe 2>/dev/null || true
 
 # ============================================================
-# CORREÇÃO CRÍTICA: raw.log no DISCO, não em /dev/shm!
+# CORREÇÃO: Removido IMUDPServerTimeStamp (não existe mais)
 # ============================================================
 cat > /etc/rsyslog.d/99-cgnat.conf << 'RSYSLOG'
 $MaxMessageSize 64k
-$IMUDPServerTimeStamp on
 $MainMsgQueueSize 5000
 $MainMsgQueueDiscardMark 4500
 $MainMsgQueueDiscardSeverity 5
@@ -2747,7 +2751,6 @@ input(type="imudp" port="514")
 template(name="nat-template" type="string" string="%msg%\n")
 
 if $msg contains 'NAT-6-LOG_TRANSLATION' then {
-    # raw.log no DISCO (NÃO na memória /dev/shm)
     action(type="omfile" file="/var/log/cgnat/raw.log" template="nat-template")
     action(type="ompipe" pipe="/var/run/cgnat.pipe" template="nat-template")
     stop
@@ -2788,8 +2791,16 @@ else
 fi
 chmod 640 /var/log/cgnat/raw.log
 
+# Reiniciar rsyslog
 systemctl restart rsyslog 2>/dev/null || true
-print_success "Rsyslog configurado (raw.log no DISCO)"
+
+# Verificar se o rsyslog está rodando sem erros
+sleep 2
+if systemctl is-active --quiet rsyslog; then
+    print_success "Rsyslog configurado (raw.log no DISCO)"
+else
+    print_warning "Rsyslog não está rodando. Verifique: systemctl status rsyslog"
+fi
 
 # ============================================================
 # 14. CONFIGURAR CRONJOBS
@@ -3356,7 +3367,9 @@ chown -R www-data:www-data /var/www/html/cgnat/ 2>/dev/null || true
 chmod -R 755 /var/www/html/cgnat/ 2>/dev/null || true
 chmod 644 /var/www/html/cgnat/*.php 2>/dev/null || true
 
-# Garantir permissões do raw.log
+# ============================================================
+# CORREÇÃO: PERMISSÕES DO RAW.LOG
+# ============================================================
 touch /var/log/cgnat/raw.log
 if getent group adm >/dev/null 2>&1; then
     chown syslog:adm /var/log/cgnat/raw.log 2>/dev/null || chown root:adm /var/log/cgnat/raw.log
@@ -3364,12 +3377,39 @@ else
     chown syslog:syslog /var/log/cgnat/raw.log 2>/dev/null || chown root:root /var/log/cgnat/raw.log
 fi
 chmod 640 /var/log/cgnat/raw.log
+chmod 755 /var/log/cgnat
 
-# Garantir permissões do parser (SELECT)
-sudo -u postgres psql -d cgnat_logs -c "GRANT SELECT ON clientes TO cgnat_parser;" 2>/dev/null || true
-sudo -u postgres psql -d cgnat_logs -c "GRANT SELECT ON pppoe_sessoes TO cgnat_parser;" 2>/dev/null || true
-sudo -u postgres psql -d cgnat_logs -c "GRANT SELECT ON historico_ipv6 TO cgnat_parser;" 2>/dev/null || true
+# ============================================================
+# CORREÇÃO: PERMISSÕES DO PARSER (SELECT + SEQUENCE)
+# ============================================================
+sudo -u postgres psql -d cgnat_logs << 'SQL' 2>/dev/null || true
+-- SELECT nas tabelas
+GRANT SELECT ON clientes TO cgnat_parser;
+GRANT SELECT ON pppoe_sessoes TO cgnat_parser;
+GRANT SELECT ON historico_ipv6 TO cgnat_parser;
+GRANT SELECT ON vw_cgnat_logs_count TO cgnat_parser;
 
+-- CRÍTICO: USAGE nas sequences
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO cgnat_parser;
+
+SELECT '✅ Permissões corrigidas' as status;
+SQL
+
+# ============================================================
+# CORREÇÃO: VERIFICAR RSYSLOG
+# ============================================================
+if ! systemctl is-active --quiet rsyslog; then
+    print_warning "Rsyslog não está rodando. Tentando corrigir..."
+    systemctl restart rsyslog
+    sleep 2
+    if systemctl is-active --quiet rsyslog; then
+        print_success "Rsyslog reiniciado com sucesso"
+    else
+        print_error "Erro ao reiniciar rsyslog. Verifique: journalctl -u rsyslog -n 20"
+    fi
+fi
+
+# Iniciar serviços
 systemctl restart cgnat-parser 2>/dev/null || true
 systemctl restart apache2 2>/dev/null || true
 
