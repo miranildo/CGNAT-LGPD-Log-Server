@@ -3782,8 +3782,8 @@ enviar_resumo_diario() {
     TOTAL_CLIENTES=\$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
     LOGS_HOJE=\$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE DATE(data_hora) = CURRENT_DATE;" 2>/dev/null | xargs)
     TOTAL_LOGS=\$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
-    ULTIMA_STATS=\$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1 | sed 's/.* - //')
-    MENSAGEM=\$(gerar_mensagem "RESUMO" "\$DB_SIZE" "\$TOTAL_CLIENTES" "\$DISCO_INFO" "\$LOGS_HOJE" "\$TOTAL_LOGS" "\$ULTIMA_STATS")
+    ULTIMA_STATS=$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
+    MENSAGEM=$(gerar_mensagem "RESUMO" "$DB_SIZE" "$TOTAL_CLIENTES" "$DISCO_INFO" "$LOGS_HOJE" "$TOTAL_LOGS" "$ULTIMA_STATS")
     
     enviar_telegram "\$MENSAGEM"
     
