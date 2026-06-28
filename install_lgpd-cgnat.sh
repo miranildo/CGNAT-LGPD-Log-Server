@@ -59,7 +59,7 @@ MAX_TENTATIVAS="3"
 # ============================================================
 
 clear
-print_header "🚀 INSTALADOR CGNAT LGPD - VERSÃO 2.0 CORRIGIDA"
+print_header "🚀 INSTALADOR LGPD CGANET LOGS - VERSÃO 1.0"
 echo "📌 Versão para João Pessoa/PB"
 echo ""
 echo "✅ CORREÇÕES IMPLEMENTADAS:"
