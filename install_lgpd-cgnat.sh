@@ -43,15 +43,15 @@ check_root() {
 # CONFIGURAÇÕES
 # ============================================================
 
-DB_PASS_CGNAT="WBT@00000000"
-DB_PASS_PARSER="WBT@0000000"
-MK_AUTH_IP="172.31.254.2"
+DB_PASS_CGNAT="Wbt@07717125"
+DB_PASS_PARSER="Wbt@07717125"
+MK_AUTH_IP="172.31.255.2"
 MK_AUTH_USER="root"
-MK_AUTH_PASS="00000000@MLSS"
+MK_AUTH_PASS="25077171@Mlss"
 MK_AUTH_DB_PASS="vertrigo"
-CISCO_IP="192.168.243.250"
-CISCO_USER="mkauth"
-CISCO_PASS="WBT@0000000"
+CISCO_IP="190.196.243.250"
+CISCO_USER="admin"
+CISCO_PASS="Wbt077171"
 TIMEZONE="America/Recife"
 
 # ============================================================
