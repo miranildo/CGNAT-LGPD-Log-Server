@@ -3164,6 +3164,286 @@ chmod +x /usr/local/bin/clean_shm.sh
 
 print_success "Scripts criados com sucesso!"
 
+# Script de Monitoramento da saúde do programa
+cat > /usr/local/bin/monitor_cgnat.sh << 'EOF'
+#!/bin/bash
+# ============================================================
+# MONITORAMENTO DEFINITIVO - CGNAT LGPD (VERSÃO FINAL)
+# ============================================================
+
+# Cores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+NC='\033[0m'
+BOLD='\033[1m'
+
+# Funções de ajuda
+show_help() {
+    echo "============================================================"
+    echo "  📊 MONITORAMENTO CGNAT - Comandos"
+    echo "============================================================"
+    echo ""
+    echo "  ${GREEN}monitor_cgnat.sh${NC}        - Mostra dashboard completo"
+    echo "  ${GREEN}monitor_cgnat.sh -l${NC}     - Logs em tempo real (tail -f)"
+    echo "  ${GREEN}monitor_cgnat.sh -d${NC}     - Dashboard interativo (atualiza a cada 5s)"
+    echo "  ${GREEN}monitor_cgnat.sh -c${NC}     - Diagnóstico rápido"
+    echo "  ${GREEN}monitor_cgnat.sh -h${NC}     - Esta ajuda"
+    echo ""
+    echo "============================================================"
+}
+
+# Função para obter espaço em disco de forma robusta
+get_disk_info() {
+    local mount_point="$1"
+    local info=$(df -h "$mount_point" | tail -1)
+    local usado=$(echo "$info" | awk '{print $3}')
+    local total=$(echo "$info" | awk '{print $2}')
+    local percent=$(echo "$info" | awk '{print $5}' | sed 's/%//')
+    echo "$usado|$total|$percent"
+}
+
+# Função: Dashboard
+show_dashboard() {
+    clear
+    echo "============================================================"
+    echo "   📊 DASHBOARD CGNAT - $(date '+%d/%m/%Y %H:%M:%S')"
+    echo "============================================================"
+    echo ""
+
+    # 1. Serviços
+    echo -e "${CYAN}🔹 SERVIÇOS:${NC}"
+    for svc in postgresql@15-main rsyslog cgnat-parser apache2; do
+        if systemctl is-active --quiet $svc 2>/dev/null; then
+            echo -e "  ${GREEN}✅${NC} $svc: rodando"
+        else
+            echo -e "  ${RED}❌${NC} $svc: PARADO!"
+        fi
+    done
+    echo ""
+
+    # 2. Coleta de Logs
+    echo -e "${CYAN}🔹 COLETA DE LOGS:${NC}"
+    TOTAL=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
+    HOJE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE DATE(data_hora) = CURRENT_DATE;" 2>/dev/null | xargs)
+    ULTIMO_5MIN=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE data_hora > NOW() - INTERVAL '5 minutes';" 2>/dev/null | xargs)
+    ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
+    
+    echo -e "  ${MAGENTA}📊${NC} Total de logs: ${BOLD}${TOTAL:-0}${NC}"
+    echo -e "  ${MAGENTA}📊${NC} Logs hoje: ${BOLD}${HOJE:-0}${NC}"
+    echo -e "  ${MAGENTA}📊${NC} Últimos 5 min: ${BOLD}${ULTIMO_5MIN:-0}${NC}"
+    [ ! -z "$ULTIMO_LOG" ] && echo -e "  ${MAGENTA}🕐${NC} Último log: ${ULTIMO_LOG}"
+    echo ""
+
+    # 3. Espaço
+    echo -e "${CYAN}🔹 ESPAÇO:${NC}"
+    
+    DISCO_INFO=$(get_disk_info "/")
+    DISCO_USADO=$(echo "$DISCO_INFO" | cut -d'|' -f1)
+    DISCO_TOTAL=$(echo "$DISCO_INFO" | cut -d'|' -f2)
+    DISCO_PERC=$(echo "$DISCO_INFO" | cut -d'|' -f3)
+    
+    SHM_INFO=$(get_disk_info "/dev/shm")
+    SHM_USADO=$(echo "$SHM_INFO" | cut -d'|' -f1)
+    SHM_TOTAL=$(echo "$SHM_INFO" | cut -d'|' -f2)
+    SHM_PERC=$(echo "$SHM_INFO" | cut -d'|' -f3)
+    
+    DB_SIZE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs'));" 2>/dev/null | xargs)
+    
+    echo -e "  ${MAGENTA}💾${NC} Disco: ${DISCO_USADO} de ${DISCO_TOTAL} (${DISCO_PERC}%)"
+    echo -e "  ${MAGENTA}💾${NC} /dev/shm: ${SHM_USADO} de ${SHM_TOTAL} (${SHM_PERC}%)"
+    echo -e "  ${MAGENTA}🗄️${NC} Banco: ${DB_SIZE:-N/A}"
+    echo ""
+
+    # 4. Autovacuum (CORRIGIDO)
+    echo -e "${CYAN}🔹 AUTOVACUUM:${NC}"
+    
+    # Usar formato CSV para evitar problemas com caracteres especiais
+    AUTOVACUUM_DATA=$(sudo -u postgres psql -d cgnat_logs -t -A -F'|' -c "
+    SELECT 
+        relname,
+        n_live_tup,
+        n_dead_tup,
+        round(n_dead_tup::numeric / NULLIF(n_live_tup, 0) * 100, 2) as perc_mortos
+    FROM pg_stat_all_tables 
+    WHERE schemaname = 'public' 
+    AND relname LIKE 'cgnat_logs%'
+    AND n_live_tup > 0
+    ORDER BY relname
+    LIMIT 1;
+    " 2>/dev/null | tr -d ' ')
+    
+    if [ ! -z "$AUTOVACUUM_DATA" ] && [ "$AUTOVACUUM_DATA" != " " ]; then
+        TABELA=$(echo "$AUTOVACUUM_DATA" | cut -d'|' -f1)
+        VIVOS=$(echo "$AUTOVACUUM_DATA" | cut -d'|' -f2)
+        MORTOS=$(echo "$AUTOVACUUM_DATA" | cut -d'|' -f3)
+        PERC=$(echo "$AUTOVACUUM_DATA" | cut -d'|' -f4)
+        
+        if [ "$PERC" = "0.00" ] || [ -z "$PERC" ]; then
+            echo -e "  ${GREEN}✅${NC} ${TABELA}: ${VIVOS} vivos, ${MORTOS} mortos (0%)"
+        else
+            echo -e "  ${YELLOW}⚠️${NC} ${TABELA}: ${VIVOS} vivos, ${MORTOS} mortos (${PERC}%)"
+        fi
+    else
+        echo -e "  ${YELLOW}⚠️${NC} Aguardando primeira coleta..."
+    fi
+    echo ""
+
+    # 5. Clientes
+    echo -e "${CYAN}🔹 CLIENTES:${NC}"
+    TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
+    ATIVOS=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
+    IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
+    echo -e "  ${MAGENTA}👥${NC} Total: ${BOLD}${TOTAL_CLIENTES:-0}${NC}"
+    echo -e "  ${MAGENTA}👥${NC} Ativos: ${BOLD}${ATIVOS:-0}${NC}"
+    echo -e "  ${MAGENTA}🌐${NC} Com IPv6: ${BOLD}${IPV6:-0}${NC}"
+    echo ""
+
+    # 6. Status do Parser
+    echo -e "${CYAN}🔹 PARSER:${NC}"
+    ULTIMAS_STATS=$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
+    if [ ! -z "$ULTIMAS_STATS" ]; then
+        CREATED=$(echo "$ULTIMAS_STATS" | grep -oP 'Created=\K[0-9]+' 2>/dev/null || echo "0")
+        DELETED=$(echo "$ULTIMAS_STATS" | grep -oP 'Deleted=\K[0-9]+' 2>/dev/null || echo "0")
+        CACHE_HITS=$(echo "$ULTIMAS_STATS" | grep -oP 'hits=\K[0-9]+' 2>/dev/null || echo "0")
+        CACHE_MISSES=$(echo "$ULTIMAS_STATS" | grep -oP 'misses=\K[0-9]+' 2>/dev/null || echo "0")
+        echo -e "  ${GREEN}✅${NC} Processando: Created=${CREATED}, Deleted=${DELETED}"
+        echo -e "  ${GREEN}✅${NC} Cache: hits=${CACHE_HITS}, misses=${CACHE_MISSES}"
+    else
+        echo -e "  ${YELLOW}⚠️${NC} Aguardando primeira leitura..."
+    fi
+    echo ""
+
+    # 7. Alertas
+    echo -e "${CYAN}🔹 ALERTAS:${NC}"
+    
+    if [[ "$SHM_PERC" =~ ^[0-9]+$ ]] && [ "${SHM_PERC}" -gt 80 ]; then
+        echo -e "  ${RED}⚠️${NC} /dev/shm em ${SHM_PERC}% (ATENÇÃO!)"
+    fi
+    
+    if [[ "$DISCO_PERC" =~ ^[0-9]+$ ]] && [ "${DISCO_PERC}" -gt 80 ]; then
+        echo -e "  ${RED}⚠️${NC} Disco em ${DISCO_PERC}% (ATENÇÃO!)"
+    fi
+    
+    if [ "${ULTIMO_5MIN:-0}" -eq 0 ] && [ "${TOTAL:-0}" -gt 0 ]; then
+        echo -e "  ${YELLOW}⚠️${NC} Nenhum log nos últimos 5 minutos!"
+    fi
+    
+    ERRORS=$(tail -100 /var/log/cgnat/parser.log 2>/dev/null | grep -i "error" | wc -l)
+    if [ $ERRORS -gt 0 ]; then
+        echo -e "  ${RED}⚠️${NC} ${ERRORS} erros no parser (últimas 100 linhas)"
+    else
+        echo -e "  ${GREEN}✅${NC} Nenhum erro no parser"
+    fi
+    
+    echo ""
+    echo "============================================================"
+    echo "  🔄 Atualiza automaticamente a cada 5 segundos"
+    echo "  Pressione Ctrl+C para sair"
+    echo "============================================================"
+}
+
+# Função: Logs em tempo real
+show_logs() {
+    echo "============================================================"
+    echo "   📋 LOGS EM TEMPO REAL - CGNAT"
+    echo "============================================================"
+    echo ""
+    echo "  🔹 Parser log:     ${GREEN}/var/log/cgnat/parser.log${NC}"
+    echo "  🔹 Raw log:        ${GREEN}/var/log/cgnat/raw.log${NC}"
+    echo "  🔹 PostgreSQL log: ${GREEN}/var/log/postgresql/postgresql-15-main.log${NC}"
+    echo ""
+    echo "  Pressione Ctrl+C para sair"
+    echo "============================================================"
+    echo ""
+    
+    tail -f \
+        /var/log/cgnat/parser.log \
+        /var/log/cgnat/raw.log \
+        /var/log/postgresql/postgresql-15-main.log 2>/dev/null | \
+    while read -r line; do
+        if echo "$line" | grep -q "ERROR\|FATAL\|PANIC"; then
+            echo -e "${RED}${line}${NC}"
+        elif echo "$line" | grep -q "WARNING"; then
+            echo -e "${YELLOW}${line}${NC}"
+        elif echo "$line" | grep -q "Stats:"; then
+            echo -e "${CYAN}${line}${NC}"
+        else
+            echo "$line"
+        fi
+    done
+}
+
+# Função: Diagnóstico rápido
+quick_check() {
+    echo "============================================================"
+    echo "   ⚡ DIAGNÓSTICO RÁPIDO - $(date '+%d/%m/%Y %H:%M:%S')"
+    echo "============================================================"
+    echo ""
+    
+    echo "🔹 SERVIÇOS:"
+    for svc in postgresql@15-main rsyslog cgnat-parser apache2; do
+        if systemctl is-active --quiet $svc 2>/dev/null; then
+            echo "  ✅ $svc"
+        else
+            echo "  ❌ $svc"
+        fi
+    done
+    echo ""
+    
+    TOTAL=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
+    echo "🔹 TOTAL DE LOGS: ${TOTAL:-0}"
+    
+    ULTIMO_5MIN=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE data_hora > NOW() - INTERVAL '5 minutes';" 2>/dev/null | xargs)
+    echo "🔹 LOGS ÚLTIMOS 5 MIN: ${ULTIMO_5MIN:-0}"
+    echo ""
+    
+    SHM_PERC=$(df -h /dev/shm | tail -1 | awk '{print $5}' | sed 's/%//')
+    echo "🔹 /dev/shm: ${SHM_PERC}%"
+    echo ""
+    
+    echo "🔹 ÚLTIMAS 5 LINHAS DO PARSER:"
+    tail -5 /var/log/cgnat/parser.log 2>/dev/null | sed 's/^/  /' || echo "  (sem logs)"
+    echo ""
+    
+    echo "============================================================"
+    echo "  Para mais detalhes: monitor_cgnat.sh -d"
+    echo "============================================================"
+}
+
+# ============================================================
+# MAIN
+# ============================================================
+
+case "$1" in
+    -h|--help)
+        show_help
+        ;;
+    -l|--log)
+        show_logs
+        ;;
+    -d|--dashboard)
+        while true; do
+            show_dashboard
+            sleep 5
+        done
+        ;;
+    -c|--check)
+        quick_check
+        ;;
+    *)
+        show_dashboard
+        ;;
+esac
+EOF
+
+chmod +x /usr/local/bin/monitor_cgnat.sh
+
+print_success "Scripts criados com sucesso!"
+
 # ============================================================
 # 15.5. EXECUTAR SINCRONIZAÇÃO INICIAL MKAUTH
 # ============================================================
@@ -3481,6 +3761,11 @@ echo "   1. Acesse a interface web: http://$IP/"
 echo "   2. Configure o Cisco ASR1001-X para enviar logs"
 echo "   3. Verifique a sincronização MK-AUTH: /usr/local/bin/sync_mkauth.sh"
 echo "   4. Verifique a sincronização IPv6: /usr/local/bin/sync_ipv6_cisco.sh"
+echo "   5. Dashboard em tempo real (atualiza a cada 5s): monitor_cgnat.sh -d"
+echo "   6. Logs em tempo real (tail -f): monitor_cgnat.sh -l"
+echo "   7. Diagnóstico rápido: /usr/local/bin/sync_ipv6_cisco.sh"
+echo "   8. Ajuda: monitor_cgnat.sh -h"
+echo "   9. Dashboard + Logs (tudo): monitor_cgnat.sh -a"
 echo ""
 echo "============================================================"
 print_success "Sistema instalado com sucesso!"
