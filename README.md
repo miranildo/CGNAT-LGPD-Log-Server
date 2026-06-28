@@ -21,7 +21,7 @@ wget -O install_cgnat.sh https://raw.githubusercontent.com/miranildo/CGNAT-LGPD-
 chmod +x install_cgnat.sh
 ```
 
-## ⚡ Apos a instalação antes de executar o instalador ajuste seu parâmetros de acordo com sua rede
+## ⚡ Antes de executar o script de instalação ajuste seu parâmetros de acordo com sua rede
 ```bash
 
 # ============================================================
