@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# SCRIPT DE INSTALAÇÃO - SISTEMA CGNAT LGPD (VERSÃO 1.0
+# SCRIPT DE INSTALAÇÃO - SISTEMA CGNAT LGPD VERSÃO 1.0
 # ============================================================
 # Versão: 1.0 - Debian 12 e 13 x64
 # Autor: WEBLINE TELECOM - Sistema CGNAT - João Pessoa/PB
