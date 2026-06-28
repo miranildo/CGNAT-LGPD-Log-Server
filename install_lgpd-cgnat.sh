@@ -60,10 +60,10 @@ CISCO_IP="190.196.243.250"
 CISCO_USER="admin"
 CISCO_PASS="Wbt077171"
 TIMEZONE="America/Recife"
-TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
-TELEGRAM_CHAT_ID="-1003792217019"
-TELEGRAM_ENVIO="SIM"
-MAX_TENTATIVAS="3"
+TEL_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
+TEL_CHAT_ID="-1003792217019"
+TEL_ENVIO="SIM"
+MA_TENTATIVAS="3"
 
 # ============================================================
 # INÍCIO
@@ -3604,10 +3604,10 @@ NC='\033[0m'
 # ============================================================
 # CONFIGURAÇÕES DO TELEGRAM
 # ============================================================
-#TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
-#TELEGRAM_CHAT_ID="-1003792217019"
-#TELEGRAM_ENVIO="SIM"
-#MAX_TENTATIVAS=3
+TELEGRAM_TOKEN="${TEL_TOKEN}"
+TELEGRAM_CHAT_ID="${TEL_CHAT_ID}"
+TELEGRAM_ENVIO="${TEL_ENVIO}"
+MAX_TENTATIVAS="${MA_TENTATIVAS}"
 
 # ============================================================
 # CONFIGURAÇÕES DE ALERTA
@@ -3622,7 +3622,7 @@ TEMP_FILE="/tmp/telegram_alert_last.txt"
 # ============================================================
 enviar_telegram() {
     local MENSAGEM="$1"
-    local TENTATIVAS=0
+    local TENTATIVAS=3
     
     if [ "$TELEGRAM_ENVIO" = "SIM" ]; then
         while [ $TENTATIVAS -lt $MAX_TENTATIVAS ]; do
