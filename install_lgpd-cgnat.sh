@@ -2942,17 +2942,14 @@ PART
 chmod +x /usr/local/bin/create_cgnat_partition.sh
 
 # Script de Sincronização MK-AUTH
-# ============================================================
-# 15.5. SCRIPT DE SINCRONIZAÇÃO MK-AUTH (CORRIGIDO)
-# ============================================================
 print_header "15.5. CRIANDO SCRIPT DE SINCRONIZAÇÃO MK-AUTH"
 
-cat > /usr/local/bin/sync_mkauth.sh << 'EOF'
+cat > /usr/local/bin/sync_mkauth.sh << EOF
 #!/bin/bash
 # Script para sincronizar dados do MK-AUTH via SSH
 # NUNCA DELETA clientes - apenas marca como inativo
 
-echo "$(date): Iniciando sincronização com MK-AUTH..."
+echo "\$(date): Iniciando sincronização com MK-AUTH..."
 
 # Usando as variáveis do script principal
 MK_AUTH_IP="${MK_AUTH_IP}"
@@ -2962,17 +2959,17 @@ DB_USER="root"
 DB_PASS="${MK_AUTH_DB_PASS}"
 DB_NAME="mkradius"
 
-TMP_FILE="/tmp/radacct_export_$$.csv"
+TMP_FILE="/tmp/radacct_export_\$\$.csv"
 
-echo "Conectando a ${MK_AUTH_IP}..."
+echo "Conectando a \${MK_AUTH_IP}..."
 
-sshpass -p "${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR ${MK_AUTH_USER}@${MK_AUTH_IP} \
-"mysql -u ${DB_USER} -p${DB_PASS} -B -N -e '
+sshpass -p "\${MK_AUTH_PASS}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \${MK_AUTH_USER}@\${MK_AUTH_IP} \
+"mysql -u \${DB_USER} -p\${DB_PASS} -B -N -e '
 SELECT 
     login,
     nome,
     ip
-FROM ${DB_NAME}.sis_cliente
+FROM \${DB_NAME}.sis_cliente
 WHERE cli_ativado = \"s\"
 AND ip IS NOT NULL
 AND ip != \"\"
@@ -2981,17 +2978,18 @@ SELECT
     username,
     nome,
     ip
-FROM ${DB_NAME}.sis_adicional
+FROM \${DB_NAME}.sis_adicional
 WHERE bloqueado = \"nao\"
 AND ip IS NOT NULL
 AND ip != \"\"
-'" > "${TMP_FILE}"
+'" > "\${TMP_FILE}"
 
-if [ -s "${TMP_FILE}" ]; then
-    CLIENTES=$(wc -l < "${TMP_FILE}")
-    echo "Dados exportados do MK-AUTH: ${CLIENTES} clientes"
+if [ -s "\${TMP_FILE}" ]; then
+    CLIENTES=\$(wc -l < "\${TMP_FILE}")
+    echo "Dados exportados do MK-AUTH: \${CLIENTES} clientes"
     
     sudo -u postgres psql -d cgnat_logs << SQL
+    -- Criar tabela temporária com os dados novos
     CREATE TEMP TABLE temp_clientes (
         login text,
         nome text,
@@ -2999,13 +2997,15 @@ if [ -s "${TMP_FILE}" ]; then
     );
     
     COPY temp_clientes (login, nome, ip_privado)
-    FROM '${TMP_FILE}'
+    FROM '\${TMP_FILE}'
     DELIMITER E'\t'
     CSV;
     
+    -- Adicionar colunas se não existirem
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS ativo BOOLEAN DEFAULT TRUE;
     ALTER TABLE clientes ADD COLUMN IF NOT EXISTS data_inativacao TIMESTAMP;
     
+    -- Atualizar apenas os campos que vêm do MK-AUTH
     UPDATE clientes c
     SET 
         nome = t.nome,
@@ -3015,6 +3015,7 @@ if [ -s "${TMP_FILE}" ]; then
     FROM temp_clientes t
     WHERE c.login = t.login;
     
+    -- Inserir novos clientes (que não existem)
     INSERT INTO clientes (login, nome, ip_privado, ativo)
     SELECT 
         t.login,
@@ -3025,6 +3026,7 @@ if [ -s "${TMP_FILE}" ]; then
     LEFT JOIN clientes c ON t.login = c.login
     WHERE c.login IS NULL;
     
+    -- Marcar como inativo
     UPDATE clientes 
     SET ativo = false, 
         data_inativacao = NOW()
@@ -3036,56 +3038,47 @@ if [ -s "${TMP_FILE}" ]; then
     FROM clientes;
 SQL
     
-    rm -f "${TMP_FILE}"
+    rm -f "\${TMP_FILE}"
 else
     echo "ERRO: Não foi possível exportar dados do MK-AUTH"
 fi
 
-echo "$(date): Sincronização MK-AUTH concluída."
+echo "\$(date): Sincronização MK-AUTH concluída."
 EOF
 
 chmod +x /usr/local/bin/sync_mkauth.sh
 print_success "Script de sincronização MK-AUTH criado"
 
 # Script de Sincronização IPv6 Cisco
-# ============================================================
-# SCRIPT DE SINCRONIZAÇÃO IPv6 CISCO (CORRIGIDO)
-# ============================================================
 print_header "CRIANDO SCRIPT DE SINCRONIZAÇÃO IPv6"
 
-cat > /usr/local/bin/sync_ipv6_cisco.sh << 'EOF'
+cat > /usr/local/bin/sync_ipv6_cisco.sh << EOF
 #!/bin/bash
 # Script para sincronizar IPv6 do Cisco ASR com a tabela historico_ipv6
 
-echo "$(date): Iniciando sincronização IPv6 do Cisco..."
+echo "\$(date): Iniciando sincronização IPv6 do Cisco..."
 echo "⏳ Aguarde, estamos sincronizando os dados com o Cisco..."
 
-# Usando as variáveis do script principal
 CISCO_IP="${CISCO_IP}"
 CISCO_USER="${CISCO_USER}"
 CISCO_PASS="${CISCO_PASS}"
-TIMEOUT=30
-TMP_FILE="/tmp/ipv6_binding_$$.txt"
+TMP_FILE="/tmp/ipv6_binding_\$\$.txt"
 
-echo "📡 Conectando ao Cisco ${CISCO_IP} (timeout: ${TIMEOUT}s)..."
+# Coletar dados do Cisco
+sshpass -p "\$CISCO_PASS" ssh \\
+    -o KexAlgorithms=+diffie-hellman-group14-sha1 \\
+    -o HostKeyAlgorithms=+ssh-rsa \\
+    -o PubkeyAcceptedAlgorithms=+ssh-rsa \\
+    -o StrictHostKeyChecking=no \\
+    "\$CISCO_USER@\$CISCO_IP" "show ipv6 dhcp binding | include Username|Prefix:" > "\$TMP_FILE" 2>/dev/null
 
-# Coletar dados do Cisco com timeout
-sshpass -p "${CISCO_PASS}" ssh \
-    -o ConnectTimeout=${TIMEOUT} \
-    -o ConnectionAttempts=2 \
-    -o KexAlgorithms=+diffie-hellman-group14-sha1 \
-    -o HostKeyAlgorithms=+ssh-rsa \
-    -o PubkeyAcceptedAlgorithms=+ssh-rsa \
-    -o StrictHostKeyChecking=no \
-    "${CISCO_USER}@${CISCO_IP}" "show ipv6 dhcp binding | include Username|Prefix:" > "${TMP_FILE}" 2>/dev/null
-
-if [ ! -s "${TMP_FILE}" ]; then
+if [ ! -s "\$TMP_FILE" ]; then
     echo "❌ ERRO: Não foi possível coletar dados do Cisco"
     echo "Verifique:"
-    echo "  - O Cisco ASR está acessível em ${CISCO_IP}?"
+    echo "  - O Cisco ASR está acessível em \$CISCO_IP?"
     echo "  - As credenciais estão corretas?"
     echo "  - O comando 'show ipv6 dhcp binding' funciona?"
-    rm -f "${TMP_FILE}"
+    rm -f "\$TMP_FILE"
     exit 1
 fi
 
@@ -3096,52 +3089,56 @@ login=""
 prefix=""
 
 while IFS= read -r line; do
-    line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\r')
+    line=\$(echo "\$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//' | tr -d '\r')
     
-    if echo "$line" | grep -q "^Username :"; then
-        login=$(echo "$line" | sed 's/^Username : //' | tr -d '\r')
+    if echo "\$line" | grep -q "^Username :"; then
+        login=\$(echo "\$line" | sed 's/^Username : //' | tr -d '\r')
     fi
     
-    if echo "$line" | grep -q "^Prefix:"; then
-        prefix=$(echo "$line" | sed 's/^Prefix: //' | awk '{print $1}' | tr -d '\r')
+    if echo "\$line" | grep -q "^Prefix:"; then
+        prefix=\$(echo "\$line" | sed 's/^Prefix: //' | awk '{print \$1}' | tr -d '\r')
         
-        if [ ! -z "$login" ] && [ ! -z "$prefix" ]; then
+        if [ ! -z "\$login" ] && [ ! -z "\$prefix" ]; then
+            # INSERIR HISTÓRICO em vez de atualizar
             sudo -u postgres psql -d cgnat_logs -q << PSQL 2>/dev/null
+-- 1. Fechar registros anteriores do mesmo login (se mudou de prefixo)
 UPDATE historico_ipv6 
 SET data_fim = NOW(), 
     ativo = false,
     atualizado_em = NOW()
-WHERE login = '$login' 
+WHERE login = '\$login' 
 AND ativo = true 
-AND ipv6_prefix != '$prefix';
+AND ipv6_prefix != '\$prefix';
 
+-- 2. Verificar se já existe um registro ativo com este prefixo
 INSERT INTO historico_ipv6 (login, ipv6_prefix, data_inicio, ativo)
-SELECT '$login', '$prefix', NOW(), true
+SELECT '\$login', '\$prefix', NOW(), true
 WHERE NOT EXISTS (
     SELECT 1 FROM historico_ipv6 
-    WHERE login = '$login' 
-    AND ipv6_prefix = '$prefix' 
+    WHERE login = '\$login' 
+    AND ipv6_prefix = '\$prefix' 
     AND ativo = true
 );
 
+-- 3. Atualizar a tabela clientes (dados atuais para consulta rápida)
 UPDATE clientes 
-SET ipv6_prefix = '$prefix',
+SET ipv6_prefix = '\$prefix',
     ipv6_atualizado = NOW()
-WHERE login = '$login';
+WHERE login = '\$login';
 PSQL
-            if [ $? -eq 0 ]; then
-                UPDATED=$((UPDATED + 1))
-                echo "  ✅ $login -> $prefix"
+            if [ \$? -eq 0 ]; then
+                UPDATED=\$((UPDATED + 1))
+                echo "  ✅ \$login -> \$prefix"
             fi
         fi
     fi
-done < "${TMP_FILE}"
+done < "\$TMP_FILE"
 
-echo "✅ Sincronização IPv6 concluída. Clientes atualizados: $UPDATED"
+echo "✅ Sincronização IPv6 concluída. Clientes atualizados: \$UPDATED"
 echo "📊 Total de clientes com IPv6:"
 sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(DISTINCT login) FROM historico_ipv6 WHERE ativo = true;" 2>/dev/null | xargs
 
-rm -f "${TMP_FILE}"
+rm -f "\$TMP_FILE"
 EOF
 
 chmod +x /usr/local/bin/sync_ipv6_cisco.sh
