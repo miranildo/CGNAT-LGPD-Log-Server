@@ -3129,7 +3129,10 @@ WHERE login = '\$login';
 PSQL
             if [ \$? -eq 0 ]; then
                 UPDATED=\$((UPDATED + 1))
-                //echo "  ✅ \$login -> \$prefix"
+                # ============================================================
+                # LINHA REMOVIDA: NÃO EXIBE MAIS OS CLIENTES
+                # echo "  ✅ $login -> $prefix"
+                # ============================================================
             fi
         fi
     fi
