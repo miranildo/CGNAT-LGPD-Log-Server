@@ -3863,7 +3863,7 @@ case "$1" in
 esac
 EOF
 
-chmod +x /usr/local/bin/check_space.s
+chmod +x /usr/local/bin/check_space.sh
 
 print_success "Script de alerta Telegram criado com sucesso!"
 
