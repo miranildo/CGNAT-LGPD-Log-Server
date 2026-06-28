@@ -2814,6 +2814,8 @@ cat > /tmp/crontab_cgnat << 'CRON'
 0 8 * * * /usr/local/bin/monitor_disco.sh >> /var/log/cgnat/disco.log 2>&1
 */5 * * * * /usr/local/bin/clean_shm.sh >> /var/log/cgnat/shm_clean.log 2>&1
 */5 * * * * /usr/local/bin/sync_ipv6_cisco.sh >> /var/log/cgnat/sync_ipv6.log 2>&1
+0 */6 * * * /usr/local/bin/check_space.sh"
+0 8 * * * /usr/local/bin/check_space.sh --resumo
 CRON
 
 crontab /tmp/crontab_cgnat 2>/dev/null || true
@@ -3441,6 +3443,262 @@ esac
 EOF
 
 chmod +x /usr/local/bin/monitor_cgnat.sh
+
+print_success "Scripts criados com sucesso!"
+
+# Script de Monitoramento de espaço em disco Alertas Telegram
+cat > /usr/local/bin/check_space.sh << 'EOF'
+#!/bin/bash
+# ============================================================
+# ALERTA DE ESPAÇO EM DISCO - CGNAT (TELEGRAM)
+# ============================================================
+
+# Cores
+VERDE='\033[0;32m'
+VERMELHO='\033[0;31m'
+AMARELO='\033[1;33m'
+AZUL='\033[0;34m'
+NC='\033[0m'
+
+# ============================================================
+# CONFIGURAÇÕES DO TELEGRAM
+# ============================================================
+TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
+TELEGRAM_CHAT_ID="-1003792217019"
+TELEGRAM_ENVIO="SIM"  # SIM = envia para Telegram | NAO = não envia
+MAX_TENTATIVAS=3
+
+# ============================================================
+# CONFIGURAÇÕES DE ALERTA
+# ============================================================
+LIMITE_DISCO=75        # Alerta quando disco > 75%
+LIMITE_SHM=80          # Alerta quando /dev/shm > 80%
+LOG_FILE="/var/log/cgnat/space_alerts.log"
+TEMP_FILE="/tmp/telegram_alert_last.txt"
+
+# ============================================================
+# FUNÇÃO: ENVIAR MENSAGEM AO TELEGRAM
+# ============================================================
+enviar_telegram() {
+    local MENSAGEM="$1"
+    local TENTATIVAS=0
+    
+    if [ "$TELEGRAM_ENVIO" = "SIM" ]; then
+        while [ $TENTATIVAS -lt $MAX_TENTATIVAS ]; do
+            curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+                -d chat_id="${TELEGRAM_CHAT_ID}" \
+                -d text="${MENSAGEM}" \
+                -d parse_mode="HTML" > /dev/null 2>&1
+            
+            if [ $? -eq 0 ]; then
+                echo -e "${VERDE}✅ Mensagem enviada ao Telegram${NC}" | tee -a $LOG_FILE
+                return 0
+            fi
+            
+            TENTATIVAS=$((TENTATIVAS + 1))
+            echo -e "${AMARELO}⚠️ Tentativa $TENTATIVAS de $MAX_TENTATIVAS falhou. Tentando novamente...${NC}" | tee -a $LOG_FILE
+            sleep 2
+        done
+        
+        echo -e "${VERMELHO}❌ ERRO: Não foi possível enviar mensagem ao Telegram após $MAX_TENTATIVAS tentativas${NC}" | tee -a $LOG_FILE
+        return 1
+    else
+        echo -e "${AMARELO}ℹ️ Envio para Telegram desativado${NC}" | tee -a $LOG_FILE
+        return 0
+    fi
+}
+
+# ============================================================
+# FUNÇÃO: GERAR MENSAGEM DE ALERTA
+# ============================================================
+gerar_mensagem() {
+    local TIPO="$1"
+    local USO="$2"
+    local LIMITE="$3"
+    local DETALHE="$4"
+    local HOST=$(hostname)
+    local DATA=$(date '+%d/%m/%Y %H:%M:%S')
+    
+    if [ "$TIPO" = "DISCO" ]; then
+        cat << EOF
+🚨 <b>ALERTA DE ESPAÇO EM DISCO - CGNAT</b>
+
+📌 <b>Host:</b> ${HOST}
+🕐 <b>Data/Hora:</b> ${DATA}
+
+📊 <b>DISCO:</b>
+   Usado: ${DETALHE}
+   Uso: <b>${USO}%</b> (Limite: ${LIMITE}%)
+
+⚠️ <b>AÇÃO RECOMENDADA:</b>
+   - Verificar logs antigos
+   - Executar limpeza: /usr/local/bin/clean_old_logs.sh
+   - Verificar partições: monitor_cgnat.sh -c
+
+🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
+EOF
+    elif [ "$TIPO" = "SHM" ]; then
+        cat << EOF
+⚠️ <b>ALERTA DE /dev/shm - CGNAT</b>
+
+📌 <b>Host:</b> ${HOST}
+🕐 <b>Data/Hora:</b> ${DATA}
+
+💾 <b>/dev/shm:</b>
+   Uso: <b>${USO}%</b> (Limite: ${LIMITE}%)
+   Detalhe: ${DETALHE}
+
+⚠️ <b>AÇÃO RECOMENDADA:</b>
+   - Verificar arquivos temporários
+   - Executar: /usr/local/bin/clean_shm.sh
+
+🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
+EOF
+    elif [ "$TIPO" = "RESUMO" ]; then
+        cat << EOF
+📊 <b>RESUMO DIÁRIO - CGNAT</b>
+
+📌 <b>Host:</b> ${HOST}
+🕐 <b>Data/Hora:</b> ${DATA}
+
+💾 <b>DISCO:</b>
+   Usado: ${DETALHE}
+
+🗄️ <b>BANCO:</b>
+   Tamanho: ${USO}
+
+👥 <b>CLIENTES:</b>
+   ${DETALHE_EXTRA}
+
+📊 <b>LOGS HOJE:</b>
+   ${USO_EXTRA}
+
+🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
+EOF
+    fi
+}
+
+# ============================================================
+# FUNÇÃO: ENVIAR RESUMO DIÁRIO
+# ============================================================
+enviar_resumo_diario() {
+    # Verificar se já enviou hoje
+    HOJE=$(date +%Y%m%d)
+    ULTIMO_ENVIO=""
+    if [ -f "$TEMP_FILE" ]; then
+        ULTIMO_ENVIO=$(cat "$TEMP_FILE")
+    fi
+    
+    if [ "$ULTIMO_ENVIO" = "$HOJE" ]; then
+        return 0
+    fi
+    
+    # Coletar dados
+    DISCO_INFO=$(df -h / | tail -1 | awk '{print $3 " de " $2 " (" $5 ")"}')
+    DB_SIZE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs'));" 2>/dev/null | xargs)
+    TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
+    LOGS_HOJE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE DATE(data_hora) = CURRENT_DATE;" 2>/dev/null | xargs)
+    
+    MENSAGEM=$(cat << EOF
+📊 <b>RESUMO DIÁRIO - CGNAT</b>
+
+📌 <b>Host:</b> $(hostname)
+🕐 <b>Data/Hora:</b> $(date '+%d/%m/%Y %H:%M:%S')
+
+💾 <b>DISCO:</b>
+   ${DISCO_INFO}
+
+🗄️ <b>BANCO DE DADOS:</b>
+   Tamanho: ${DB_SIZE:-N/A}
+   Logs hoje: ${LOGS_HOJE:-0}
+   Total logs: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
+
+👥 <b>CLIENTES:</b>
+   Total: ${TOTAL_CLIENTES:-0}
+   Ativos: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
+   Com IPv6: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
+
+📊 <b>PARSER:</b>
+   $(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1 | sed 's/.* - //')
+
+🔗 <b>Dashboard:</b> http://$(hostname)/cgnat/
+EOF
+)
+    
+    enviar_telegram "$MENSAGEM"
+    
+    # Salvar data do envio
+    echo "$HOJE" > "$TEMP_FILE"
+}
+
+# ============================================================
+# FUNÇÃO: VERIFICAR E ALERTAR
+# ============================================================
+verificar_espaco() {
+    echo "========================================" >> $LOG_FILE
+    echo "$(date): Verificando espaço..." >> $LOG_FILE
+    
+    # 1. Verificar disco
+    USO_DISCO=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
+    DISCO_INFO=$(df -h / | tail -1 | awk '{print $3 " de " $2}')
+    
+    if [ $USO_DISCO -gt $LIMITE_DISCO ]; then
+        echo -e "${VERMELHO}⚠️ ALERTA: Disco em ${USO_DISCO}%${NC}" >> $LOG_FILE
+        MENSAGEM=$(gerar_mensagem "DISCO" "$USO_DISCO" "$LIMITE_DISCO" "$DISCO_INFO")
+        enviar_telegram "$MENSAGEM"
+    else
+        echo -e "${VERDE}✅ Disco: ${USO_DISCO}% (OK)${NC}" >> $LOG_FILE
+    fi
+    
+    # 2. Verificar /dev/shm
+    USO_SHM=$(df -h /dev/shm | tail -1 | awk '{print $5}' | sed 's/%//')
+    SHM_INFO=$(df -h /dev/shm | tail -1 | awk '{print $3 " de " $2}')
+    
+    if [ $USO_SHM -gt $LIMITE_SHM ]; then
+        echo -e "${VERMELHO}⚠️ ALERTA: /dev/shm em ${USO_SHM}%${NC}" >> $LOG_FILE
+        MENSAGEM=$(gerar_mensagem "SHM" "$USO_SHM" "$LIMITE_SHM" "$SHM_INFO")
+        enviar_telegram "$MENSAGEM"
+    else
+        echo -e "${VERDE}✅ /dev/shm: ${USO_SHM}% (OK)${NC}" >> $LOG_FILE
+    fi
+    
+    # 3. Verificar se o parser está rodando
+    if ! systemctl is-active --quiet cgnat-parser; then
+        echo -e "${VERMELHO}❌ PARSER PARADO!${NC}" >> $LOG_FILE
+        enviar_telegram "🚨 <b>ALERTA CRÍTICO - CGNAT</b>%0A%0AParser está PARADO!%0AReiniciando automaticamente..." 
+        systemctl restart cgnat-parser
+        sleep 5
+        if systemctl is-active --quiet cgnat-parser; then
+            enviar_telegram "✅ <b>Parser reiniciado com sucesso!</b>"
+        fi
+    fi
+    
+    echo "========================================" >> $LOG_FILE
+}
+
+# ============================================================
+# MAIN
+# ============================================================
+
+# Criar diretório de log se não existir
+mkdir -p /var/log/cgnat
+
+# Verificar argumentos
+case "$1" in
+    --resumo|resumo)
+        enviar_resumo_diario
+        ;;
+    --test|test)
+        echo -e "${AZUL}🧪 TESTE DE ENVIO AO TELEGRAM${NC}"
+        enviar_telegram "🧪 <b>Teste de conexão - CGNAT</b>%0A%0ASistema funcionando!%0AHost: $(hostname)%0AData: $(date)"
+        ;;
+    *)
+        verificar_espaco
+        ;;
+esac
+EOF
+
+chmod +x /usr/local/bin/check_space.sh
 
 print_success "Scripts criados com sucesso!"
 
