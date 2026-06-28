@@ -145,16 +145,6 @@ print_success "/dev/shm configurado com 16GB"
 df -h /dev/shm
 
 # ============================================================
-# 2.6. CORRIGIR HOSTNAME
-# ============================================================
-print_header "2.6. CORRIGINDO HOSTNAME"
-
-if ! grep -q "$(hostname)" /etc/hosts; then
-    echo "127.0.1.1 $(hostname)" >> /etc/hosts
-    print_success "Hostname adicionado ao /etc/hosts"
-fi
-
-# ============================================================
 # 3. ATUALIZAR SISTEMA
 # ============================================================
 print_header "3. ATUALIZANDO SISTEMA"
