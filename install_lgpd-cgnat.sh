@@ -3644,18 +3644,21 @@ enviar_telegram() {
 }
 
 # ============================================================
-# FUNÇÃO: GERAR MENSAGEM DE ALERTA
+# FUNÇÃO: GERAR MENSAGEM DE ALERTA (USANDO CASE)
 # ============================================================
 gerar_mensagem() {
     local TIPO="$1"
     local USO="$2"
     local LIMITE="$3"
     local DETALHE="$4"
+    local DETALHE_EXTRA="$5"
+    local USO_EXTRA="$6"
     local HOST=$(hostname)
     local DATA=$(date '+%d/%m/%Y %H:%M:%S')
     
-    if [ "$TIPO" = "DISCO" ]; then
-        cat << EOF
+    case "$TIPO" in
+        "DISCO")
+            cat << EOF
 🚨 <b>ALERTA DE ESPAÇO EM DISCO - CGNAT</b>
 
 📌 <b>Host:</b> ${HOST}
@@ -3672,8 +3675,10 @@ gerar_mensagem() {
 
 🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
 EOF
-    elif [ "$TIPO" = "SHM" ]; then
-        cat << EOF
+            ;;
+            
+        "SHM")
+            cat << EOF
 ⚠️ <b>ALERTA DE /dev/shm - CGNAT</b>
 
 📌 <b>Host:</b> ${HOST}
@@ -3689,28 +3694,80 @@ EOF
 
 🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
 EOF
-    elif [ "$TIPO" = "RESUMO" ]; then
-        cat << EOF
+            ;;
+            
+        "PARSER")
+            cat << EOF
+🚨 <b>ALERTA CRÍTICO - PARSER PARADO!</b>
+
+📌 <b>Host:</b> ${HOST}
+🕐 <b>Data/Hora:</b> ${DATA}
+
+⚠️ <b>O parser CGNAT está PARADO!</b>
+
+📊 <b>Status:</b> ${DETALHE}
+
+🔧 <b>AÇÃO AUTOMÁTICA:</b>
+   Sistema tentou reiniciar automaticamente.
+   Verifique o status: systemctl status cgnat-parser
+
+🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
+EOF
+            ;;
+            
+        "PARSER_OK")
+            cat << EOF
+✅ <b>PARSER RECUPERADO!</b>
+
+📌 <b>Host:</b> ${HOST}
+🕐 <b>Data/Hora:</b> ${DATA}
+
+✅ <b>Parser reiniciado com sucesso!</b>
+
+📊 <b>Status:</b> ${DETALHE}
+
+🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
+EOF
+            ;;
+            
+        "RESUMO")
+            cat << EOF
 📊 <b>RESUMO DIÁRIO - CGNAT</b>
 
 📌 <b>Host:</b> ${HOST}
 🕐 <b>Data/Hora:</b> ${DATA}
 
 💾 <b>DISCO:</b>
-   Usado: ${DETALHE}
+   ${DETALHE}
 
-🗄️ <b>BANCO:</b>
+🗄️ <b>BANCO DE DADOS:</b>
    Tamanho: ${USO}
+   Logs hoje: ${DETALHE_EXTRA}
+   Total logs: ${USO_EXTRA}
 
 👥 <b>CLIENTES:</b>
-   ${DETALHE_EXTRA}
+   Total: ${LIMITE}
 
-📊 <b>LOGS HOJE:</b>
-   ${USO_EXTRA}
+📊 <b>PARSER:</b>
+   ${DETALHE_EXTRA_2}
 
 🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
 EOF
-    fi
+            ;;
+            
+        *)
+            cat << EOF
+📊 <b>ALERTA CGNAT</b>
+
+📌 <b>Host:</b> ${HOST}
+🕐 <b>Data/Hora:</b> ${DATA}
+
+⚠️ <b>Alerta desconhecido</b>
+   Tipo: ${TIPO}
+   Detalhe: ${DETALHE}
+EOF
+            ;;
+    esac
 }
 
 # ============================================================
@@ -3733,32 +3790,10 @@ enviar_resumo_diario() {
     DB_SIZE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs'));" 2>/dev/null | xargs)
     TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
     LOGS_HOJE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE DATE(data_hora) = CURRENT_DATE;" 2>/dev/null | xargs)
+    TOTAL_LOGS=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
+    ULTIMA_STATS=$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1 | sed 's/.* - //')
     
-    MENSAGEM=$(cat << EOF
-📊 <b>RESUMO DIÁRIO - CGNAT</b>
-
-📌 <b>Host:</b> $(hostname)
-🕐 <b>Data/Hora:</b> $(date '+%d/%m/%Y %H:%M:%S')
-
-💾 <b>DISCO:</b>
-   ${DISCO_INFO}
-
-🗄️ <b>BANCO DE DADOS:</b>
-   Tamanho: ${DB_SIZE:-N/A}
-   Logs hoje: ${LOGS_HOJE:-0}
-   Total logs: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
-
-👥 <b>CLIENTES:</b>
-   Total: ${TOTAL_CLIENTES:-0}
-   Ativos: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
-   Com IPv6: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
-
-📊 <b>PARSER:</b>
-   $(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1 | sed 's/.* - //')
-
-🔗 <b>Dashboard:</b> http://$(hostname)/cgnat/
-EOF
-)
+    MENSAGEM=$(gerar_mensagem "RESUMO" "$DB_SIZE" "$TOTAL_CLIENTES" "$DISCO_INFO" "$LOGS_HOJE" "$TOTAL_LOGS" "$ULTIMA_STATS")
     
     enviar_telegram "$MENSAGEM"
     
@@ -3800,11 +3835,20 @@ verificar_espaco() {
     # 3. Verificar se o parser está rodando
     if ! systemctl is-active --quiet cgnat-parser; then
         echo -e "${VERMELHO}❌ PARSER PARADO!${NC}" >> $LOG_FILE
-        enviar_telegram "🚨 <b>ALERTA CRÍTICO - CGNAT</b>%0A%0AParser está PARADO!%0AReiniciando automaticamente..." 
+        MENSAGEM=$(gerar_mensagem "PARSER" "" "" "Parser está PARADO! Reiniciando...")
+        enviar_telegram "$MENSAGEM"
+        
         systemctl restart cgnat-parser
         sleep 5
+        
         if systemctl is-active --quiet cgnat-parser; then
-            enviar_telegram "✅ <b>Parser reiniciado com sucesso!</b>"
+            echo -e "${VERDE}✅ Parser reiniciado com sucesso${NC}" >> $LOG_FILE
+            MENSAGEM=$(gerar_mensagem "PARSER_OK" "" "" "Parser reiniciado com sucesso!")
+            enviar_telegram "$MENSAGEM"
+        else
+            echo -e "${VERMELHO}❌ FALHA AO REINICIAR PARSER!${NC}" >> $LOG_FILE
+            MENSAGEM=$(gerar_mensagem "PARSER" "" "" "FALHA ao reiniciar parser! Verifique manualmente.")
+            enviar_telegram "$MENSAGEM"
         fi
     fi
     
