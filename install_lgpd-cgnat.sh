@@ -3600,14 +3600,14 @@ NC='\033[0m'
 # ============================================================
 TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
 TELEGRAM_CHAT_ID="-1003792217019"
-TELEGRAM_ENVIO="SIM"  # SIM = envia para Telegram | NAO = não envia
+TELEGRAM_ENVIO="SIM"
 MAX_TENTATIVAS=3
 
 # ============================================================
 # CONFIGURAÇÕES DE ALERTA
 # ============================================================
-LIMITE_DISCO=75        # Alerta quando disco > 75%
-LIMITE_SHM=80          # Alerta quando /dev/shm > 80%
+LIMITE_DISCO=75
+LIMITE_SHM=80
 LOG_FILE="/var/log/cgnat/space_alerts.log"
 TEMP_FILE="/tmp/telegram_alert_last.txt"
 
@@ -3644,7 +3644,7 @@ enviar_telegram() {
 }
 
 # ============================================================
-# FUNÇÃO: GERAR MENSAGEM DE ALERTA (USANDO CASE)
+# FUNÇÃO: GERAR MENSAGEM DE ALERTA
 # ============================================================
 gerar_mensagem() {
     local TIPO="$1"
@@ -3658,114 +3658,102 @@ gerar_mensagem() {
     
     case "$TIPO" in
         "DISCO")
-            cat << EOF
-🚨 <b>ALERTA DE ESPAÇO EM DISCO - CGNAT</b>
-
-📌 <b>Host:</b> ${HOST}
-🕐 <b>Data/Hora:</b> ${DATA}
-
-📊 <b>DISCO:</b>
-   Usado: ${DETALHE}
-   Uso: <b>${USO}%</b> (Limite: ${LIMITE}%)
-
-⚠️ <b>AÇÃO RECOMENDADA:</b>
-   - Verificar logs antigos
-   - Executar limpeza: /usr/local/bin/clean_old_logs.sh
-   - Verificar partições: monitor_cgnat.sh -c
-
-🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
-EOF
+            echo -e "🚨 <b>ALERTA DE ESPAÇO EM DISCO - CGNAT</b>"
+            echo -e ""
+            echo -e "📌 <b>Host:</b> ${HOST}"
+            echo -e "🕐 <b>Data/Hora:</b> ${DATA}"
+            echo -e ""
+            echo -e "📊 <b>DISCO:</b>"
+            echo -e "   Usado: ${DETALHE}"
+            echo -e "   Uso: <b>${USO}%</b> (Limite: ${LIMITE}%)"
+            echo -e ""
+            echo -e "⚠️ <b>AÇÃO RECOMENDADA:</b>"
+            echo -e "   - Verificar logs antigos"
+            echo -e "   - Executar limpeza: /usr/local/bin/clean_old_logs.sh"
+            echo -e "   - Verificar partições: monitor_cgnat.sh -c"
+            echo -e ""
+            echo -e "🔗 <b>Dashboard:</b> http://${HOST}/cgnat/"
             ;;
             
         "SHM")
-            cat << EOF
-⚠️ <b>ALERTA DE /dev/shm - CGNAT</b>
-
-📌 <b>Host:</b> ${HOST}
-🕐 <b>Data/Hora:</b> ${DATA}
-
-💾 <b>/dev/shm:</b>
-   Uso: <b>${USO}%</b> (Limite: ${LIMITE}%)
-   Detalhe: ${DETALHE}
-
-⚠️ <b>AÇÃO RECOMENDADA:</b>
-   - Verificar arquivos temporários
-   - Executar: /usr/local/bin/clean_shm.sh
-
-🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
-EOF
+            echo -e "⚠️ <b>ALERTA DE /dev/shm - CGNAT</b>"
+            echo -e ""
+            echo -e "📌 <b>Host:</b> ${HOST}"
+            echo -e "🕐 <b>Data/Hora:</b> ${DATA}"
+            echo -e ""
+            echo -e "💾 <b>/dev/shm:</b>"
+            echo -e "   Uso: <b>${USO}%</b> (Limite: ${LIMITE}%)"
+            echo -e "   Detalhe: ${DETALHE}"
+            echo -e ""
+            echo -e "⚠️ <b>AÇÃO RECOMENDADA:</b>"
+            echo -e "   - Verificar arquivos temporários"
+            echo -e "   - Executar: /usr/local/bin/clean_shm.sh"
+            echo -e ""
+            echo -e "🔗 <b>Dashboard:</b> http://${HOST}/cgnat/"
             ;;
             
         "PARSER")
-            cat << EOF
-🚨 <b>ALERTA CRÍTICO - PARSER PARADO!</b>
-
-📌 <b>Host:</b> ${HOST}
-🕐 <b>Data/Hora:</b> ${DATA}
-
-⚠️ <b>O parser CGNAT está PARADO!</b>
-
-📊 <b>Status:</b> ${DETALHE}
-
-🔧 <b>AÇÃO AUTOMÁTICA:</b>
-   Sistema tentou reiniciar automaticamente.
-   Verifique o status: systemctl status cgnat-parser
-
-🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
-EOF
+            echo -e "🚨 <b>ALERTA CRÍTICO - PARSER PARADO!</b>"
+            echo -e ""
+            echo -e "📌 <b>Host:</b> ${HOST}"
+            echo -e "🕐 <b>Data/Hora:</b> ${DATA}"
+            echo -e ""
+            echo -e "⚠️ <b>O parser CGNAT está PARADO!</b>"
+            echo -e ""
+            echo -e "📊 <b>Status:</b> ${DETALHE}"
+            echo -e ""
+            echo -e "🔧 <b>AÇÃO AUTOMÁTICA:</b>"
+            echo -e "   Sistema tentou reiniciar automaticamente."
+            echo -e "   Verifique o status: systemctl status cgnat-parser"
+            echo -e ""
+            echo -e "🔗 <b>Dashboard:</b> http://${HOST}/cgnat/"
             ;;
             
         "PARSER_OK")
-            cat << EOF
-✅ <b>PARSER RECUPERADO!</b>
-
-📌 <b>Host:</b> ${HOST}
-🕐 <b>Data/Hora:</b> ${DATA}
-
-✅ <b>Parser reiniciado com sucesso!</b>
-
-📊 <b>Status:</b> ${DETALHE}
-
-🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
-EOF
+            echo -e "✅ <b>PARSER RECUPERADO!</b>"
+            echo -e ""
+            echo -e "📌 <b>Host:</b> ${HOST}"
+            echo -e "🕐 <b>Data/Hora:</b> ${DATA}"
+            echo -e ""
+            echo -e "✅ <b>Parser reiniciado com sucesso!</b>"
+            echo -e ""
+            echo -e "📊 <b>Status:</b> ${DETALHE}"
+            echo -e ""
+            echo -e "🔗 <b>Dashboard:</b> http://${HOST}/cgnat/"
             ;;
             
         "RESUMO")
-            cat << EOF
-📊 <b>RESUMO DIÁRIO - CGNAT</b>
-
-📌 <b>Host:</b> ${HOST}
-🕐 <b>Data/Hora:</b> ${DATA}
-
-💾 <b>DISCO:</b>
-   ${DETALHE}
-
-🗄️ <b>BANCO DE DADOS:</b>
-   Tamanho: ${USO}
-   Logs hoje: ${DETALHE_EXTRA}
-   Total logs: ${USO_EXTRA}
-
-👥 <b>CLIENTES:</b>
-   Total: ${LIMITE}
-
-📊 <b>PARSER:</b>
-   ${DETALHE_EXTRA_2}
-
-🔗 <b>Dashboard:</b> http://${HOST}/cgnat/
-EOF
+            echo -e "📊 <b>RESUMO DIÁRIO - CGNAT</b>"
+            echo -e ""
+            echo -e "📌 <b>Host:</b> ${HOST}"
+            echo -e "🕐 <b>Data/Hora:</b> ${DATA}"
+            echo -e ""
+            echo -e "💾 <b>DISCO:</b>"
+            echo -e "   ${DETALHE}"
+            echo -e ""
+            echo -e "🗄️ <b>BANCO DE DADOS:</b>"
+            echo -e "   Tamanho: ${USO}"
+            echo -e "   Logs hoje: ${DETALHE_EXTRA}"
+            echo -e "   Total logs: ${USO_EXTRA}"
+            echo -e ""
+            echo -e "👥 <b>CLIENTES:</b>"
+            echo -e "   Total: ${LIMITE}"
+            echo -e ""
+            echo -e "📊 <b>PARSER:</b>"
+            echo -e "   ${DETALHE_EXTRA_2}"
+            echo -e ""
+            echo -e "🔗 <b>Dashboard:</b> http://${HOST}/cgnat/"
             ;;
             
         *)
-            cat << EOF
-📊 <b>ALERTA CGNAT</b>
-
-📌 <b>Host:</b> ${HOST}
-🕐 <b>Data/Hora:</b> ${DATA}
-
-⚠️ <b>Alerta desconhecido</b>
-   Tipo: ${TIPO}
-   Detalhe: ${DETALHE}
-EOF
+            echo -e "📊 <b>ALERTA CGNAT</b>"
+            echo -e ""
+            echo -e "📌 <b>Host:</b> ${HOST}"
+            echo -e "🕐 <b>Data/Hora:</b> ${DATA}"
+            echo -e ""
+            echo -e "⚠️ <b>Alerta desconhecido</b>"
+            echo -e "   Tipo: ${TIPO}"
+            echo -e "   Detalhe: ${DETALHE}"
             ;;
     esac
 }
@@ -3774,7 +3762,6 @@ EOF
 # FUNÇÃO: ENVIAR RESUMO DIÁRIO
 # ============================================================
 enviar_resumo_diario() {
-    # Verificar se já enviou hoje
     HOJE=$(date +%Y%m%d)
     ULTIMO_ENVIO=""
     if [ -f "$TEMP_FILE" ]; then
@@ -3785,7 +3772,6 @@ enviar_resumo_diario() {
         return 0
     fi
     
-    # Coletar dados
     DISCO_INFO=$(df -h / | tail -1 | awk '{print $3 " de " $2 " (" $5 ")"}')
     DB_SIZE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs'));" 2>/dev/null | xargs)
     TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
@@ -3797,7 +3783,6 @@ enviar_resumo_diario() {
     
     enviar_telegram "$MENSAGEM"
     
-    # Salvar data do envio
     echo "$HOJE" > "$TEMP_FILE"
 }
 
@@ -3808,7 +3793,6 @@ verificar_espaco() {
     echo "========================================" >> $LOG_FILE
     echo "$(date): Verificando espaço..." >> $LOG_FILE
     
-    # 1. Verificar disco
     USO_DISCO=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
     DISCO_INFO=$(df -h / | tail -1 | awk '{print $3 " de " $2}')
     
@@ -3820,7 +3804,6 @@ verificar_espaco() {
         echo -e "${VERDE}✅ Disco: ${USO_DISCO}% (OK)${NC}" >> $LOG_FILE
     fi
     
-    # 2. Verificar /dev/shm
     USO_SHM=$(df -h /dev/shm | tail -1 | awk '{print $5}' | sed 's/%//')
     SHM_INFO=$(df -h /dev/shm | tail -1 | awk '{print $3 " de " $2}')
     
@@ -3832,7 +3815,6 @@ verificar_espaco() {
         echo -e "${VERDE}✅ /dev/shm: ${USO_SHM}% (OK)${NC}" >> $LOG_FILE
     fi
     
-    # 3. Verificar se o parser está rodando
     if ! systemctl is-active --quiet cgnat-parser; then
         echo -e "${VERMELHO}❌ PARSER PARADO!${NC}" >> $LOG_FILE
         MENSAGEM=$(gerar_mensagem "PARSER" "" "" "Parser está PARADO! Reiniciando...")
@@ -3859,10 +3841,8 @@ verificar_espaco() {
 # MAIN
 # ============================================================
 
-# Criar diretório de log se não existir
 mkdir -p /var/log/cgnat
 
-# Verificar argumentos
 case "$1" in
     --resumo|resumo)
         enviar_resumo_diario
