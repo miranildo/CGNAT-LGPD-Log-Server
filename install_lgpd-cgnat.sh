@@ -3653,112 +3653,113 @@ enviar_telegram() {
 # ============================================================
 gerar_mensagem() {
     local TIPO="\$1"
-    local USO="\$2"
-    local LIMITE="\$3"
-    local DETALHE="\$4"
-    local DETALHE_EXTRA="\$5"
-    local USO_EXTRA="\$6"
+    local VALOR1="\$2"
+    local VALOR2="\$3"
+    local VALOR3="\$4"
+    local VALOR4="\$5"
+    local VALOR5="\$6"
+    local VALOR6="\$7"
     local HOST=\$(hostname)
     local DATA=\$(date '+%d/%m/%Y %H:%M:%S')
     
     case "\$TIPO" in
         "DISCO")
-            echo -e "🚨 <b>ALERTA DE ESPAÇO EM DISCO - CGNAT</b>"
-            echo -e ""
-            echo -e "📌 <b>Host:</b> \${HOST}"
-            echo -e "🕐 <b>Data/Hora:</b> \${DATA}"
-            echo -e ""
-            echo -e "📊 <b>DISCO:</b>"
-            echo -e "   Usado: \${DETALHE}"
-            echo -e "   Uso: <b>\${USO}%</b> (Limite: \${LIMITE}%)"
-            echo -e ""
-            echo -e "⚠️ <b>AÇÃO RECOMENDADA:</b>"
-            echo -e "   - Verificar logs antigos"
-            echo -e "   - Executar limpeza: /usr/local/bin/clean_old_logs.sh"
-            echo -e "   - Verificar partições: monitor_cgnat.sh -c"
-            echo -e ""
-            echo -e "🔗 <b>Dashboard:</b> http://\${HOST}/cgnat/"
+            echo "🚨 ALERTA DE ESPAÇO EM DISCO - CGNAT
+
+📌 Host: \${HOST}
+🕐 Data/Hora: \${DATA}
+
+📊 DISCO:
+   Usado: \${VALOR3}
+   Uso: \${VALOR1}% (Limite: \${VALOR2}%)
+
+⚠️ AÇÃO RECOMENDADA:
+   - Verificar logs antigos
+   - Executar limpeza: /usr/local/bin/clean_old_logs.sh
+   - Verificar partições: monitor_cgnat.sh -c
+
+🔗 Dashboard: http://\${HOST}/cgnat/"
             ;;
             
         "SHM")
-            echo -e "⚠️ <b>ALERTA DE /dev/shm - CGNAT</b>"
-            echo -e ""
-            echo -e "📌 <b>Host:</b> \${HOST}"
-            echo -e "🕐 <b>Data/Hora:</b> \${DATA}"
-            echo -e ""
-            echo -e "💾 <b>/dev/shm:</b>"
-            echo -e "   Uso: <b>\${USO}%</b> (Limite: \${LIMITE}%)"
-            echo -e "   Detalhe: \${DETALHE}"
-            echo -e ""
-            echo -e "⚠️ <b>AÇÃO RECOMENDADA:</b>"
-            echo -e "   - Verificar arquivos temporários"
-            echo -e "   - Executar: /usr/local/bin/clean_shm.sh"
-            echo -e ""
-            echo -e "🔗 <b>Dashboard:</b> http://\${HOST}/cgnat/"
+            echo "⚠️ ALERTA DE /dev/shm - CGNAT
+
+📌 Host: \${HOST}
+🕐 Data/Hora: \${DATA}
+
+💾 /dev/shm:
+   Uso: \${VALOR1}% (Limite: \${VALOR2}%)
+   Detalhe: \${VALOR3}
+
+⚠️ AÇÃO RECOMENDADA:
+   - Verificar arquivos temporários
+   - Executar: /usr/local/bin/clean_shm.sh
+
+🔗 Dashboard: http://\${HOST}/cgnat/"
             ;;
             
         "PARSER")
-            echo -e "🚨 <b>ALERTA CRÍTICO - PARSER PARADO!</b>"
-            echo -e ""
-            echo -e "📌 <b>Host:</b> \${HOST}"
-            echo -e "🕐 <b>Data/Hora:</b> \${DATA}"
-            echo -e ""
-            echo -e "⚠️ <b>O parser CGNAT está PARADO!</b>"
-            echo -e ""
-            echo -e "📊 <b>Status:</b> \${DETALHE}"
-            echo -e ""
-            echo -e "🔧 <b>AÇÃO AUTOMÁTICA:</b>"
-            echo -e "   Sistema tentou reiniciar automaticamente."
-            echo -e "   Verifique o status: systemctl status cgnat-parser"
-            echo -e ""
-            echo -e "🔗 <b>Dashboard:</b> http://\${HOST}/cgnat/"
+            echo "🚨 ALERTA CRÍTICO - PARSER PARADO!
+
+📌 Host: \${HOST}
+🕐 Data/Hora: \${DATA}
+
+⚠️ O parser CGNAT está PARADO!
+
+📊 Status: \${VALOR3}
+
+🔧 AÇÃO AUTOMÁTICA:
+   Sistema tentou reiniciar automaticamente.
+   Verifique o status: systemctl status cgnat-parser
+
+🔗 Dashboard: http://\${HOST}/cgnat/"
             ;;
             
         "PARSER_OK")
-            echo -e "✅ <b>PARSER RECUPERADO!</b>"
-            echo -e ""
-            echo -e "📌 <b>Host:</b> \${HOST}"
-            echo -e "🕐 <b>Data/Hora:</b> \${DATA}"
-            echo -e ""
-            echo -e "✅ <b>Parser reiniciado com sucesso!</b>"
-            echo -e ""
-            echo -e "📊 <b>Status:</b> \${DETALHE}"
-            echo -e ""
-            echo -e "🔗 <b>Dashboard:</b> http://\${HOST}/cgnat/"
+            echo "✅ PARSER RECUPERADO!
+
+📌 Host: \${HOST}
+🕐 Data/Hora: \${DATA}
+
+✅ Parser reiniciado com sucesso!
+
+📊 Status: \${VALOR3}
+
+🔗 Dashboard: http://\${HOST}/cgnat/"
             ;;
             
         "RESUMO")
-            echo -e "📊 <b>RESUMO DIÁRIO - CGNAT</b>"
-            echo -e ""
-            echo -e "📌 <b>Host:</b> \${HOST}"
-            echo -e "🕐 <b>Data/Hora:</b> \${DATA}"
-            echo -e ""
-            echo -e "💾 <b>DISCO:</b>"
-            echo -e "   \${DETALHE}"
-            echo -e ""
-            echo -e "🗄️ <b>BANCO DE DADOS:</b>"
-            echo -e "   Tamanho: \${USO}"
-            echo -e "   Logs hoje: \${DETALHE_EXTRA}"
-            echo -e "   Total logs: \${USO_EXTRA}"
-            echo -e ""
-            echo -e "👥 <b>CLIENTES:</b>"
-            echo -e "   Total: \${LIMITE}"
-            echo -e ""
-            echo -e "📊 <b>PARSER:</b>"
-            echo -e "   \${DETALHE_EXTRA_2}"
-            echo -e ""
-            echo -e "🔗 <b>Dashboard:</b> http://\${HOST}/cgnat/"
+            echo "📊 RESUMO DIÁRIO - CGNAT
+
+📌 Host: \${HOST}
+🕐 Data/Hora: \${DATA}
+
+💾 DISCO:
+   \${VALOR3}
+
+🗄️ BANCO DE DADOS:
+   Tamanho: \${VALOR1}
+   Logs hoje: \${VALOR4}
+   Total logs: \${VALOR5}
+
+👥 CLIENTES:
+   Total: \${VALOR2}
+
+📊 PARSER:
+   \${VALOR6}
+
+🔗 Dashboard: http://\${HOST}/cgnat/"
             ;;
             
         *)
-            echo -e "📊 <b>ALERTA CGNAT</b>"
-            echo -e ""
-            echo -e "📌 <b>Host:</b> \${HOST}"
-            echo -e "🕐 <b>Data/Hora:</b> \${DATA}"
-            echo -e ""
-            echo -e "⚠️ <b>Alerta desconhecido</b>"
-            echo -e "   Tipo: \${TIPO}"
-            echo -e "   Detalhe: \${DETALHE}"
+            echo "📊 ALERTA CGNAT
+
+📌 Host: \${HOST}
+🕐 Data/Hora: \${DATA}
+
+⚠️ Alerta desconhecido
+   Tipo: \${TIPO}
+   Detalhe: \${VALOR3}"
             ;;
     esac
 }
@@ -3767,14 +3768,17 @@ gerar_mensagem() {
 # FUNÇÃO: ENVIAR RESUMO DIÁRIO
 # ============================================================
 enviar_resumo_diario() {
+    local FORCAR="\$1"
+    
     HOJE=\$(date +%Y%m%d)
     ULTIMO_ENVIO=""
-    if [ -f "\$TEMP_FILE" ]; then
-        ULTIMO_ENVIO=\$(cat "\$TEMP_FILE")
-    fi
     
-    if [ "\$ULTIMO_ENVIO" = "\$HOJE" ]; then
-        return 0
+    if [ "\$FORCAR" != "force" ] && [ -f "\$TEMP_FILE" ]; then
+        ULTIMO_ENVIO=\$(cat "\$TEMP_FILE")
+        if [ "\$ULTIMO_ENVIO" = "\$HOJE" ]; then
+            echo -e "\${AMARELO}ℹ️ Resumo já enviado hoje. Use --resumo-force para forçar.\${NC}"
+            return 0
+        fi
     fi
     
     DISCO_INFO=\$(df -h / | tail -1 | awk '{print \$3 " de " \$2 " (" \$5 ")"}')
@@ -3782,8 +3786,9 @@ enviar_resumo_diario() {
     TOTAL_CLIENTES=\$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
     LOGS_HOJE=\$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE DATE(data_hora) = CURRENT_DATE;" 2>/dev/null | xargs)
     TOTAL_LOGS=\$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs;" 2>/dev/null | xargs)
-    ULTIMA_STATS=$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
-    MENSAGEM=$(gerar_mensagem "RESUMO" "$DB_SIZE" "$TOTAL_CLIENTES" "$DISCO_INFO" "$LOGS_HOJE" "$TOTAL_LOGS" "$ULTIMA_STATS")
+    ULTIMA_STATS=\$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
+    
+    MENSAGEM=\$(gerar_mensagem "RESUMO" "\$DB_SIZE" "\$TOTAL_CLIENTES" "\$DISCO_INFO" "\$LOGS_HOJE" "\$TOTAL_LOGS" "\$ULTIMA_STATS")
     
     enviar_telegram "\$MENSAGEM"
     
@@ -3851,9 +3856,12 @@ case "\$1" in
     --resumo|resumo)
         enviar_resumo_diario
         ;;
+    --resumo-force|resumo-force)
+        enviar_resumo_diario "force"
+        ;;
     --test|test)
         echo -e "\${AZUL}🧪 TESTE DE ENVIO AO TELEGRAM\${NC}"
-        enviar_telegram "🧪 <b>Teste de conexão - CGNAT</b>%0A%0ASistema funcionando!%0AHost: \$(hostname)%0AData: \$(date)"
+        enviar_telegram "🧪 Teste de conexão - CGNAT%0A%0ASistema funcionando!%0AHost: \$(hostname)%0AData: \$(date)"
         ;;
     *)
         verificar_espaco
@@ -3862,7 +3870,6 @@ esac
 EOF
 
 chmod +x /usr/local/bin/check_space.sh
-
 print_success "Script de alerta Telegram criado com sucesso!"
 
 # ============================================================
