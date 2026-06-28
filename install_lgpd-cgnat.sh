@@ -3179,7 +3179,7 @@ fi
 print_success "Sincronização inicial finalizada"
 
 # ============================================================
-# 15.6.1. EXECUTAR SINCRONIZAÇÃO IPv6 INICIAL CISCO
+# 15.6.1. EXECUTAR SINCRONIZAÇÃO IPv6 INICIAL CISCO (COM BARRA + TIMEOUT)
 # ============================================================
 print_header "15.6.1. EXECUTANDO SINCRONIZAÇÃO IPv6 INICIAL"
 
@@ -3193,12 +3193,13 @@ echo "⏳ Aguardando sincronização com o Cisco ASR..."
 echo "📡 Conectando ao Cisco ASR em ${CISCO_IP}..."
 echo ""
 
-# 🔴 CORREÇÃO: Função mostrar_progresso com verificação de divisão por zero
+# ============================================================
+# FUNÇÃO MOSTRAR PROGRESSO (MANTIDA)
+# ============================================================
 mostrar_progresso() {
     local atual=$1
     local total=$2
     
-    # Se total for 0 ou vazio, mostrar mensagem sem barra
     if [ -z "$total" ] || [ "$total" -eq 0 ]; then
         printf "\r   ⏳ Processando... (%d clientes sincronizados)" "$atual"
         return
@@ -3219,35 +3220,39 @@ mostrar_progresso() {
     printf "\r   [%s] %3d%% (%d/%d)" "$barra" $((atual * 100 / total)) $atual $total
 }
 
-# Iniciar sincronização em background
+# ============================================================
+# INICIAR SINCRONIZAÇÃO EM BACKGROUND
+# ============================================================
 /usr/local/bin/sync_ipv6_cisco.sh &
 PID=$!
 
-# 🔴 CORREÇÃO: Buscar APENAS clientes ATIVOS
+# Buscar clientes ATIVOS
 TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
 
-# Se não conseguir obter ou for 0, definir como 0 (sem barra)
 if [ -z "$TOTAL_CLIENTES" ] || [ "$TOTAL_CLIENTES" -eq 0 ]; then
     TOTAL_CLIENTES=0
     print_warning "Não foi possível obter total de clientes ativos. Acompanhando apenas o número processado."
 fi
 
-# Barra de progresso
+# ============================================================
+# BARRA DE PROGRESSO COM TIMEOUT DE 60 SEGUNDOS
+# ============================================================
 ATUAL=0
+TIMEOUT=60
+CONTADOR=0
+
 echo ""
 echo "📊 Progresso da sincronização:"
 echo ""
 
-while kill -0 $PID 2>/dev/null; do
-    # Buscar quantos clientes já foram atualizados (nos últimos 5 minutos)
+while kill -0 $PID 2>/dev/null && [ $CONTADOR -lt $TIMEOUT ]; do
+    # Buscar quantos clientes já foram atualizados
     ATUAL=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_atualizado IS NOT NULL AND ipv6_atualizado > NOW() - INTERVAL '5 minutes';" 2>/dev/null | xargs)
     ATUAL=${ATUAL:-0}
     
-    # Se TOTAL_CLIENTES for 0, mostrar apenas o número processado
     if [ "$TOTAL_CLIENTES" -eq 0 ]; then
         printf "\r   ⏳ Processando... (%d clientes sincronizados)" "$ATUAL"
     else
-        # Limitar ao total
         if [ $ATUAL -gt $TOTAL_CLIENTES ]; then
             ATUAL=$TOTAL_CLIENTES
         fi
@@ -3255,40 +3260,74 @@ while kill -0 $PID 2>/dev/null; do
     fi
     
     sleep 2
+    CONTADOR=$((CONTADOR + 2))
 done
 
-# Aguardar finalização
-wait $PID
-STATUS=$?
+# ============================================================
+# VERIFICAR RESULTADO
+# ============================================================
+if kill -0 $PID 2>/dev/null; then
+    # Timeout: matar o processo
+    echo ""
+    echo "   ⚠️ Timeout de ${TIMEOUT} segundos. Finalizando..."
+    kill -9 $PID 2>/dev/null
+    wait $PID 2>/dev/null
+    STATUS=124
+else
+    # Processo terminou normalmente
+    wait $PID
+    STATUS=$?
+fi
 
-# Finalizar
+# Finalizar a barra
 echo ""
 if [ "$TOTAL_CLIENTES" -eq 0 ]; then
-    echo "   ✅ Sincronização concluída! Clientes processados: $ATUAL"
+    echo "   ✅ Processo finalizado! Clientes sincronizados: $ATUAL"
 else
     mostrar_progresso $TOTAL_CLIENTES $TOTAL_CLIENTES
 fi
 echo ""
 echo ""
 
-# Calcular tempo final
+# ============================================================
+# CALCULAR TEMPO
+# ============================================================
 FIM=$(date +%s)
 DURACAO=$((FIM - INICIO))
 MINUTOS=$((DURACAO / 60))
 SEGUNDOS=$((DURACAO % 60))
 
-# Buscar total de clientes com IPv6
-TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
-
+# ============================================================
+# TRATAMENTO DO RESULTADO
+# ============================================================
 if [ $STATUS -eq 0 ]; then
     echo "✅ Sincronização IPv6 concluída em ${MINUTOS}m${SEGUNDOS}s!"
-    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0}"
     print_success "Sincronização IPv6 inicial finalizada"
+    
+    TOTAL_IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
+    echo "   📊 Total de clientes com IPv6: ${TOTAL_IPV6:-0}"
+    
+elif [ $STATUS -eq 124 ]; then
+    echo "⏰ Timeout: Cisco ASR não respondeu em ${TIMEOUT} segundos."
+    print_warning "⚠️ Sincronização IPv6 com timeout - continuando instalação"
+    echo "   🔄 O cron tentará novamente a cada 5 minutos"
+    echo "   💡 Execute manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
+    
 else
-    echo "❌ Sincronização IPv6 inicial falhou em ${MINUTOS}m${SEGUNDOS}s"
-    print_warning "Sincronização IPv6 inicial falhou. O cron tentará novamente a cada 5 minutos."
-    print_info "Você pode executar manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
+    echo "❌ Sincronização IPv6 falhou em ${MINUTOS}m${SEGUNDOS}s (código: $STATUS)"
+    print_warning "⚠️ Sincronização IPv6 falhou - continuando instalação"
+    echo "   🔄 O cron tentará novamente a cada 5 minutos"
+    echo "   💡 Execute manualmente: /usr/local/bin/sync_ipv6_cisco.sh"
+    echo ""
+    echo "   📋 Possíveis causas:"
+    echo "      - Cisco ASR não está acessível (IP: ${CISCO_IP})"
+    echo "      - Credenciais incorretas"
+    echo "      - Firewall bloqueando SSH"
+    echo "      - Comando 'show ipv6 dhcp binding' não disponível"
 fi
+
+print_info "➡️ Continuando instalação..."
+echo ""
 
 # ============================================================
 # 15.6.1. MIGRAR DADOS EXISTENTES PARA HISTÓRICO
