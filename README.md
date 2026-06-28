@@ -20,3 +20,23 @@ bash <(curl -s https://raw.githubusercontent.com/miranildo/CGNAT-LGPD-Log-Server
 wget -O install_cgnat.sh https://raw.githubusercontent.com/miranildo/CGNAT-LGPD-Log-Server/main/install_cgnat.sh
 chmod +x install_cgnat.sh
 ```
+
+## ⚡ Apos a instalação antes de executar o instalador ajuste seu parâmetros de acordo com sua rede
+```bash
+
+# ============================================================
+# CONFIGURAÇÕES
+# ============================================================
+
+DB_PASS_CGNAT="WBT@00000000"
+DB_PASS_PARSER="WBT@0000000"
+MK_AUTH_IP="172.31.254.2"
+MK_AUTH_USER="root"
+MK_AUTH_PASS="00000000@MLSS"
+MK_AUTH_DB_PASS="vertrigo"
+CISCO_IP="192.168.243.250"
+CISCO_USER="mkauth"
+CISCO_PASS="WBT@0000000"
+TIMEZONE="America/Recife"
+
+```
