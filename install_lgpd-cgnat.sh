@@ -3604,10 +3604,10 @@ NC='\033[0m'
 # ============================================================
 # CONFIGURAÇÕES DO TELEGRAM
 # ============================================================
-TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
-TELEGRAM_CHAT_ID="-1003792217019"
-TELEGRAM_ENVIO="SIM"
-MAX_TENTATIVAS=3
+#TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
+#TELEGRAM_CHAT_ID="-1003792217019"
+#TELEGRAM_ENVIO="SIM"
+#MAX_TENTATIVAS=3
 
 # ============================================================
 # CONFIGURAÇÕES DE ALERTA
