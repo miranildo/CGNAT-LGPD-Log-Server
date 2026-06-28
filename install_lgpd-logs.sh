@@ -105,15 +105,15 @@ if mount | grep -q "/dev/shm"; then
     print_info "/dev/shm já está montado"
 else
     print_warning "/dev/shm não montado. Montando..."
-    mount -t tmpfs -o size=8G tmpfs /dev/shm
+    mount -t tmpfs -o size=16G tmpfs /dev/shm
 fi
 
 # Aumentar para 8GB (ignorar erros se já estiver montado)
-mount -o remount,size=8G /dev/shm 2>/dev/null || true
+mount -o remount,size=16G /dev/shm 2>/dev/null || true
 
 # Tornar permanente no fstab
 if ! grep -q "tmpfs /dev/shm" /etc/fstab; then
-    echo "tmpfs /dev/shm tmpfs defaults,size=8G 0 0" >> /etc/fstab
+    echo "tmpfs /dev/shm tmpfs defaults,size=16G 0 0" >> /etc/fstab
     print_info "Entrada adicionada no /etc/fstab"
 fi
 
@@ -122,7 +122,7 @@ rm -rf /dev/shm/PostgreSQL.* 2>/dev/null
 rm -rf /dev/shm/sem.* 2>/dev/null
 rm -rf /dev/shm/.s.PGSQL.* 2>/dev/null
 
-print_success "/dev/shm configurado com 8GB"
+print_success "/dev/shm configurado com 16GB"
 df -h /dev/shm
 
 # ============================================================
