@@ -1198,7 +1198,6 @@ $perfil = $_SESSION['perfil'] ?? 'operador';
 </div>
 MENU_PHP
 
-# 12.8 INDEX.PHP
 cat > /var/www/html/cgnat/index.php << 'INDEX_PHP'
 <?php
 require_once 'headers.php';
@@ -1233,6 +1232,39 @@ try {
 } catch (Exception $e) {
     $tamanho_db = 'N/A';
 }
+
+// ============================================================
+// CALCULAR TEMPO ONLINE DO SISTEMA
+// ============================================================
+function getUptime() {
+    // Pegar uptime do sistema
+    $uptime = shell_exec("cat /proc/uptime");
+    $uptime = explode(" ", $uptime);
+    $seconds = intval($uptime[0]);
+    
+    $days = floor($seconds / 86400);
+    $seconds -= $days * 86400;
+    $hours = floor($seconds / 3600);
+    $seconds -= $hours * 3600;
+    $minutes = floor($seconds / 60);
+    $seconds -= $minutes * 60;
+    
+    $result = '';
+    if ($days > 0) {
+        $result .= $days . 'd ';
+    }
+    $result .= sprintf("%02dh %02dm %02ds", $hours, $minutes, $seconds);
+    
+    // Pegar data/hora do boot
+    $boot_time = shell_exec("date -d @$(($(date +%s) - $(cat /proc/uptime | cut -d' ' -f1 | cut -d'.' -f1))) '+%d/%m/%Y %H:%M:%S'");
+    
+    return [
+        'uptime' => $result,
+        'boot' => trim($boot_time)
+    ];
+}
+
+$uptime_info = getUptime();
 
 include 'menu.php';
 ?>
@@ -1280,6 +1312,22 @@ include 'menu.php';
             color: #aaa;
             font-size: 13px;
             margin-top: 2px;
+        }
+        .header-index .welcome .uptime {
+            color: #27ae60;
+            font-size: 13px;
+            margin-top: 5px;
+            background: #e8f5e9;
+            padding: 4px 12px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+        .header-index .welcome .uptime .label {
+            color: #888;
+        }
+        .header-index .welcome .uptime .time {
+            font-weight: 700;
+            color: #27ae60;
         }
 
         .disco-card-header {
@@ -1391,10 +1439,35 @@ include 'menu.php';
         }
         .actions { text-align: center; margin-top: 20px; }
 
+        .footer-info {
+            margin-top: 30px;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            font-size: 13px;
+            color: #888;
+        }
+        .footer-info .uptime-footer {
+            color: #555;
+        }
+        .footer-info .uptime-footer strong {
+            color: #27ae60;
+        }
+        .footer-info .version {
+            color: #aaa;
+        }
+
         @media (max-width: 768px) {
             .cards { grid-template-columns: 1fr 1fr; }
             .header-index { flex-direction: column; align-items: stretch; }
             .disco-card-header { align-self: stretch; }
+            .footer-info { flex-direction: column; text-align: center; }
         }
         @media (max-width: 480px) {
             .cards { grid-template-columns: 1fr; }
@@ -1409,6 +1482,11 @@ include 'menu.php';
                 <h1>👋 Bem-vindo, <span class="user"><?php echo htmlspecialchars($_SESSION['nome_completo']); ?></span></h1>
                 <p>Sistema de Consulta CGNAT para atendimento à LGPD.</p>
                 <div class="perfil">Perfil: <strong><?php echo htmlspecialchars($_SESSION['perfil']); ?></strong></div>
+                <div class="uptime">
+                    <span class="label">🟢 Online há </span>
+                    <span class="time" id="uptime_display"><?php echo $uptime_info['uptime']; ?></span>
+                    <span style="color:#aaa;font-size:11px;margin-left:8px;">(desde <?php echo $uptime_info['boot']; ?>)</span>
+                </div>
             </div>
 
             <div class="disco-card-header">
@@ -1433,31 +1511,88 @@ include 'menu.php';
         <div class="cards">
             <div class="card card-verde">
                 <div class="numero"><?php echo $consultas_hoje; ?></div>
-                <div class="label">Consultas Hoje</div>
+                <div class="label">📋 Consultas Hoje</div>
             </div>
             <div class="card card-vermelho">
                 <div class="numero" id="total_logs"><?php echo number_format($total_logs); ?></div>
-                <div class="label">Total de Logs CGNAT</div>
+                <div class="label">📊 Total de Logs CGNAT</div>
             </div>
             <div class="card card-amarelo">
                 <div class="numero"><?php echo number_format($total_clientes); ?></div>
-                <div class="label">Clientes Cadastrados</div>
+                <div class="label">👥 Clientes Cadastrados</div>
             </div>
             <div class="card">
                 <div class="numero"><?php echo date('d/m/Y'); ?></div>
-                <div class="label">Data Atual</div>
+                <div class="label">📅 Data Atual</div>
             </div>
         </div>
 
         <div class="actions">
             <a href="consultar.php" class="btn-consulta">🔍 Ir para Consultas</a>
         </div>
+
+        <div class="footer-info">
+            <div class="uptime-footer">
+                🟢 <strong>Online:</strong> 
+                <span id="uptime_footer"><?php echo $uptime_info['uptime']; ?></span>
+                <span style="color:#aaa;font-size:11px;">(boot: <?php echo $uptime_info['boot']; ?>)</span>
+            </div>
+            <div class="version">
+                📡 WEBLINE TELECOM - CGNAT LGPD v2.0
+            </div>
+        </div>
     </div>
 
     <script>
+    // ============================================================
+    // ATUALIZAR CONTADOR DE TEMPO ONLINE EM TEMPO REAL
+    // ============================================================
+    (function() {
+        // Pegar o uptime inicial em segundos
+        var initialUptime = <?php echo intval(file_get_contents('/proc/uptime')); ?>;
+        var startTime = Date.now() - (initialUptime * 1000);
+        
+        function formatUptime(seconds) {
+            var days = Math.floor(seconds / 86400);
+            seconds -= days * 86400;
+            var hours = Math.floor(seconds / 3600);
+            seconds -= hours * 3600;
+            var minutes = Math.floor(seconds / 60);
+            seconds -= minutes * 60;
+            
+            var result = '';
+            if (days > 0) {
+                result += days + 'd ';
+            }
+            result += String(hours).padStart(2, '0') + 'h ';
+            result += String(minutes).padStart(2, '0') + 'm ';
+            result += String(Math.floor(seconds)).padStart(2, '0') + 's';
+            return result;
+        }
+        
+        function updateUptime() {
+            var now = Date.now();
+            var uptimeSeconds = (now - startTime) / 1000;
+            var formatted = formatUptime(uptimeSeconds);
+            
+            // Atualizar todos os elementos
+            var displays = document.querySelectorAll('#uptime_display, #uptime_footer');
+            displays.forEach(function(el) {
+                if (el) el.textContent = formatted;
+            });
+        }
+        
+        // Atualizar a cada 1 segundo
+        setInterval(updateUptime, 1000);
+        
+        // Atualizar imediatamente
+        updateUptime();
+    })();
+    
+    // Auto-refresh a cada 30 segundos (para outros dados)
     setTimeout(function() {
         location.reload();
-    }, 5000);
+    }, 30000);
     </script>
 </body>
 </html>
