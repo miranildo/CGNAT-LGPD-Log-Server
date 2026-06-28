@@ -63,7 +63,7 @@ TIMEZONE="America/Recife"
 TELEGRAM_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
 TELEGRAM_CHAT_ID="-1003792217019"
 TELEGRAM_ENVIO="SIM"
-MAX_TENTATIVAS=3
+MAX_TENTATIVAS="3"
 
 # ============================================================
 # INÍCIO
