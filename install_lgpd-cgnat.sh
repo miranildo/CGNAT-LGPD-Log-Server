@@ -39,19 +39,19 @@ check_root() {
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-DB_PASS_CGNAT="Wbt@07717125"
-DB_PASS_PARSER="Wbt@07717125"
-MK_AUTH_IP="172.31.255.2"
+DB_PASS_CGNAT="Abc@00000000"
+DB_PASS_PARSER="Abc@00000000"
+MK_AUTH_IP="172.31.254.2"
 MK_AUTH_USER="root"
-MK_AUTH_PASS="25077171@Mlss"
+MK_AUTH_PASS="000000000@Abcd"
 MK_AUTH_DB_PASS="vertrigo"
 MK_AUTH_DB_TABLE="mkradius"
-CISCO_IP="190.196.243.250"
+CISCO_IP="192.168.100.1"
 CISCO_USER="admin"
-CISCO_PASS="Wbt077171"
+CISCO_PASS="Abc00000"
 TIMEZONE="America/Recife"
-TEL_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
-TEL_CHAT_ID="-1003792217019"
+TEL_TOKEN="SEU_TOKEN_TELEGRAM"
+TEL_CHAT_ID="SEU_ID_CHANNEL"
 TEL_ENVIO="SIM"
 MAX_TENTATIVAS="3"
 
@@ -3712,7 +3712,6 @@ cat > /root/COMANDOS_CGNAT.txt << EOF
 ============================================================
   SISTEMA INSTALADO EM: $(date '+%d/%m/%Y %H:%M:%S')
   HOST: $(hostname)
-  IP: $(hostname -I | awk '{print \$1}')
 ============================================================
 EOF
 
