@@ -4666,14 +4666,14 @@ cat > /home/monitor/.bashrc << 'EOF'
 # ============================================================
 if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
     clear
-    echo "⏳ Aguardando serviços iniciarem (30 segundos)..."
-    sleep 30
+    echo "⏳ Aguardando serviços iniciarem (5 segundos)..."
+    sleep 5
     /usr/local/bin/monitor_cgnat.sh -d
 fi
 EOF
 
 chown monitor:monitor /home/monitor/.bashrc
-print_success ".bashrc do monitor configurado (sleep 30s)"
+print_success ".bashrc do monitor configurado (sleep 5s)"
 
 # 3. Configurar login automático no tty1
 mkdir -p /etc/systemd/system/getty@tty1.service.d/
