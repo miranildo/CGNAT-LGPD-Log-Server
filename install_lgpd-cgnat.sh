@@ -632,17 +632,18 @@ deactivate
 print_success "Ambiente Python configurado"
 
 # ============================================================
-# 10. CRIAR O PARSER PYTHON
+# 10. CRIAR O PARSER PYTHON (COM AUTO-RECONEXÃO)
 # ============================================================
 print_header "10. CRIANDO PARSER PYTHON"
 
 cat > /opt/cgnat/cgnat_parser.py << 'EOF'
 #!/usr/bin/env python3
-# /opt/cgnat/cgnat_parser.py - VERSÃO OTIMIZADA COM CACHE
+# /opt/cgnat/cgnat_parser.py - VERSÃO COM AUTO-RECONEXÃO
 
 import re
 import sys
 import psycopg2
+import time
 from datetime import datetime
 import logging
 from typing import Dict, Optional, Tuple
@@ -655,13 +656,8 @@ logging.basicConfig(
 
 class CGNATParserASR:
     def __init__(self):
-        self.conn = psycopg2.connect(
-            host="localhost",
-            database="cgnat_logs",
-            user="cgnat_parser",
-            password="WBT@0000000"
-        )
-        self.conn.autocommit = False
+        self.conn = None
+        self.connect()
         
         self.timestamp_pattern = re.compile(r'(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\.\d{3})')
         self.nat_pattern = re.compile(r'%NAT-6-LOG_TRANSLATION:\s+(.+)')
@@ -669,11 +665,60 @@ class CGNATParserASR:
             r'(Created|Deleted)\s+Translation\s+(\w+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+([\d.]+):(\d+)\s+(\d+)'
         )
         
-        self.stats = {'created': 0, 'deleted': 0, 'errors': 0}
+        self.stats = {'created': 0, 'deleted': 0, 'errors': 0, 'reconnects': 0}
         self.login_cache = {}
         self.cache_hits = 0
         self.cache_misses = 0
         
+    def connect(self):
+        """Conecta ao banco com retry automático"""
+        max_retries = 5
+        retry_delay = 5
+        
+        for attempt in range(max_retries):
+            try:
+                if self.conn is not None:
+                    try:
+                        self.conn.close()
+                    except:
+                        pass
+                
+                self.conn = psycopg2.connect(
+                    host="localhost",
+                    database="cgnat_logs",
+                    user="cgnat_parser",
+                    password="Wbt@07717125",
+                    connect_timeout=10
+                )
+                self.conn.autocommit = False
+                logging.warning(f"Conectado ao PostgreSQL (tentativa {attempt + 1})")
+                return True
+            except Exception as e:
+                logging.error(f"Erro ao conectar (tentativa {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                else:
+                    logging.error("Falha ao conectar após múltiplas tentativas")
+                    return False
+        return False
+    
+    def ensure_connection(self):
+        """Garante que a conexão está ativa"""
+        if self.conn is None:
+            logging.warning("Conexão perdida. Reconectando...")
+            self.stats['reconnects'] += 1
+            return self.connect()
+        
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT 1")
+            cursor.close()
+            return True
+        except Exception:
+            logging.warning("Conexão com PostgreSQL perdida. Reconectando...")
+            self.stats['reconnects'] += 1
+            return self.connect()
+    
     def parse_log_line(self, line: str) -> Optional[Dict]:
         timestamp_match = self.timestamp_pattern.search(line)
         if timestamp_match:
@@ -722,6 +767,10 @@ class CGNATParserASR:
             return self.login_cache[ip_privado], None
         
         self.cache_misses += 1
+        
+        if not self.ensure_connection():
+            return None, None
+            
         cursor = self.conn.cursor()
         try:
             cursor.execute("""
@@ -755,11 +804,19 @@ class CGNATParserASR:
             return None, None
             
         except Exception as e:
+            logging.error(f"Erro no get_pppoe_login: {e}")
+            try:
+                self.conn.rollback()
+            except:
+                pass
             return None, None
         finally:
             cursor.close()
     
     def save_log(self, parsed: Dict):
+        if not self.ensure_connection():
+            return
+            
         cursor = self.conn.cursor()
         try:
             login, sessao_id = self.get_pppoe_login(
@@ -799,8 +856,12 @@ class CGNATParserASR:
                 self.stats['deleted'] += 1
                 
         except Exception as e:
-            self.conn.rollback()
+            try:
+                self.conn.rollback()
+            except:
+                pass
             self.stats['errors'] += 1
+            logging.error(f"Erro ao salvar log: {e}")
         finally:
             cursor.close()
     
@@ -811,11 +872,12 @@ class CGNATParserASR:
                 self.save_log(parsed)
             else:
                 self.stats['errors'] += 1
-        except Exception:
+        except Exception as e:
             self.stats['errors'] += 1
+            logging.error(f"Erro processando linha: {e}")
     
     def run(self):
-        logging.warning("Parser CGNAT iniciado - VERSÃO COM PERMISSÕES CORRIGIDAS")
+        logging.warning("Parser CGNAT iniciado - VERSÃO COM AUTO-RECONEXÃO")
         
         for line in sys.stdin:
             line = line.strip()
@@ -824,7 +886,7 @@ class CGNATParserASR:
             self.process_line(line)
             
             if (self.stats['created'] + self.stats['deleted']) % 5000 == 0:
-                logging.warning(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, Cache: hits={self.cache_hits}, misses={self.cache_misses}")
+                logging.warning(f"Stats: Created={self.stats['created']}, Deleted={self.stats['deleted']}, Cache: hits={self.cache_hits}, misses={self.cache_misses}, Errors={self.stats['errors']}, Reconnects={self.stats['reconnects']}")
 
 if __name__ == "__main__":
     parser = CGNATParserASR()
@@ -832,10 +894,10 @@ if __name__ == "__main__":
 EOF
 
 chmod +x /opt/cgnat/cgnat_parser.py
-print_success "Parser Python criado com permissões corrigidas"
+print_success "Parser Python criado com auto-reconexão"
 
 # ============================================================
-# 11. CRIAR SERVICE DO PARSER
+# 11. CRIAR SERVICE DO PARSER (COM AUTO-RESTART)
 # ============================================================
 print_header "11. CRIANDO SERVICE DO PARSER"
 
@@ -843,6 +905,7 @@ cat > /etc/systemd/system/cgnat-parser.service << 'EOF'
 [Unit]
 Description=CGNAT Log Parser Service
 After=network.target postgresql.service rsyslog.service
+Wants=postgresql.service rsyslog.service
 
 [Service]
 Type=simple
@@ -865,7 +928,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable cgnat-parser
-print_success "Service do parser criado"
+print_success "Service do parser criado com auto-restart"
 
 # ============================================================
 # 12. CRIAR ARQUIVOS PHP
@@ -3328,6 +3391,217 @@ EOF
 
 chmod +x /usr/local/bin/sync_ipv6_cisco.sh
 print_success "Script de sincronização IPv6 com histórico criado"
+
+# ============================================================
+# 15.8. SCRIPT DE RECUPERAÇÃO DO PARSER
+# ============================================================
+print_header "15.8. CRIANDO SCRIPT DE RECUPERAÇÃO DO PARSER"
+
+cat > /usr/local/bin/recuperar_parser.sh << 'EOF'
+#!/bin/bash
+# ============================================================
+# RECUPERAÇÃO DO PARSER CGNAT APÓS QUEDA
+# ============================================================
+
+echo "========================================"
+echo "  🔧 RECUPERANDO PARSER CGNAT"
+echo "  Data: $(date)"
+echo "========================================"
+
+# 1. Parar serviços
+echo "1. Parando serviços..."
+systemctl stop cgnat-parser 2>/dev/null
+systemctl stop rsyslog 2>/dev/null
+
+# 2. Remover pipe antigo e recriar
+echo "2. Recriando pipe..."
+rm -f /var/run/cgnat.pipe
+mkfifo /var/run/cgnat.pipe
+chmod 666 /var/run/cgnat.pipe
+
+# 3. Verificar pipe
+ls -la /var/run/cgnat.pipe
+
+# 4. Iniciar rsyslog
+echo "3. Iniciando rsyslog..."
+systemctl start rsyslog
+sleep 2
+
+# 5. Iniciar parser
+echo "4. Iniciando parser..."
+systemctl start cgnat-parser
+sleep 3
+
+# 6. Verificar status
+echo ""
+echo "5. Status:"
+systemctl status cgnat-parser --no-pager | head -10
+
+# 7. Verificar logs
+echo ""
+echo "6. Últimos logs do parser:"
+tail -5 /var/log/cgnat/parser.log 2>/dev/null || echo "  (sem logs)"
+
+echo ""
+echo "========================================"
+echo "  ✅ Recuperação concluída!"
+echo "========================================"
+EOF
+
+chmod +x /usr/local/bin/recuperar_parser.sh
+print_success "Script de recuperação do parser criado"
+
+# ============================================================
+# 15.9. SCRIPT DE RECUPERAÇÃO DO POSTGRESQL
+# ============================================================
+print_header "15.9. CRIANDO SCRIPT DE RECUPERAÇÃO DO POSTGRESQL"
+
+cat > /usr/local/bin/recuperar_postgres.sh << 'EOF'
+#!/bin/bash
+# ============================================================
+# RECUPERAÇÃO DO POSTGRESQL APÓS QUEDA DE ENERGIA
+# ============================================================
+
+echo "========================================"
+echo "  🔧 RECUPERANDO POSTGRESQL CGNAT"
+echo "  Data: $(date)"
+echo "========================================"
+
+# 1. Parar serviços
+echo "1. Parando serviços..."
+systemctl stop cgnat-parser 2>/dev/null
+systemctl stop postgresql@15-main 2>/dev/null
+systemctl stop postgresql@17-main 2>/dev/null
+
+# 2. Verificar clusters
+echo "2. Verificando clusters..."
+pg_lsclusters
+
+# 3. Remover cluster 17 se existir (Debian 13)
+if pg_lsclusters 2>/dev/null | grep -q "17.*online"; then
+    echo "3. Removendo cluster PostgreSQL 17..."
+    pg_dropcluster 17 main --stop 2>/dev/null
+fi
+
+# 4. Verificar porta 5432
+echo "4. Verificando porta 5432..."
+if ss -tlnp 2>/dev/null | grep -q ":5432"; then
+    echo "  ⚠️ Porta 5432 ocupada. Matando processo..."
+    fuser -k 5432/tcp 2>/dev/null
+    sleep 2
+fi
+
+# 5. Tentar iniciar PostgreSQL 15
+echo "5. Iniciando PostgreSQL 15..."
+pg_ctlcluster 15 main start --force 2>/dev/null
+
+if [ $? -eq 0 ]; then
+    echo "  ✅ Cluster 15 iniciado com sucesso!"
+else
+    echo "  ⚠️ Falha na recuperação. Resetando WAL..."
+    pg_resetwal -f /var/lib/postgresql/15/main 2>/dev/null
+    
+    echo "  🔄 Iniciando cluster..."
+    pg_ctlcluster 15 main start 2>/dev/null
+fi
+
+sleep 3
+
+# 6. Verificar resultado
+echo ""
+echo "6. Status final:"
+pg_lsclusters
+
+if pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
+    echo ""
+    echo "  ✅ PostgreSQL 15 rodando com sucesso!"
+    
+    # Recriar usuários se necessário
+    echo ""
+    echo "7. Verificando usuários..."
+    sudo -u postgres psql -c "SELECT 1 FROM pg_user WHERE usename='cgnat_admin';" 2>/dev/null | grep -q 1 || {
+        echo "  🔄 Recriando usuários..."
+        sudo -u postgres psql -c "CREATE USER cgnat_parser WITH PASSWORD 'Wbt@07717125';" 2>/dev/null
+        sudo -u postgres psql -c "CREATE USER cgnat_admin WITH PASSWORD 'Wbt@07717125';" 2>/dev/null
+        sudo -u postgres psql -c "CREATE DATABASE cgnat_logs OWNER cgnat_parser;" 2>/dev/null
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_parser;" 2>/dev/null
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;" 2>/dev/null
+    }
+    
+    # Reiniciar parser
+    /usr/local/bin/recuperar_parser.sh 2>/dev/null || systemctl restart cgnat-parser
+    
+    echo ""
+    echo "  ✅ Recuperação concluída!"
+else
+    echo ""
+    echo "  ❌ Falha ao iniciar PostgreSQL 15"
+    echo "  Verifique: sudo tail -50 /var/log/postgresql/postgresql-15-main.log"
+fi
+
+echo "========================================"
+EOF
+
+chmod +x /usr/local/bin/recuperar_postgres.sh
+print_success "Script de recuperação do PostgreSQL criado"
+
+# ============================================================
+# 15.10. RECUPERAÇÃO AUTOMÁTICA NO BOOT
+# ============================================================
+print_header "15.10. CONFIGURANDO RECUPERAÇÃO AUTOMÁTICA NO BOOT"
+
+# Service para recuperar PostgreSQL no boot
+cat > /etc/systemd/system/recuperar-postgres-boot.service << 'EOF'
+[Unit]
+Description=Recuperar PostgreSQL após queda de energia
+After=network.target
+Before=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/recuperar_postgres.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable recuperar-postgres-boot.service
+
+# ============================================================
+# 15.11. MONITORAMENTO CONTÍNUO (CRON)
+# ============================================================
+print_header "15.11. CONFIGURANDO MONITORAMENTO CONTÍNUO"
+
+# Adicionar verificação periódica do parser
+(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/recuperar_parser.sh >> /var/log/cgnat/recuperar_parser.log 2>&1") | crontab -
+
+# Adicionar verificação do PostgreSQL a cada hora
+(crontab -l 2>/dev/null; echo "0 * * * * /usr/local/bin/recuperar_postgres.sh >> /var/log/cgnat/recuperar_postgres.log 2>&1") | crontab -
+
+print_success "Monitoramento contínuo configurado no cron"
+
+# Service para recuperar parser no boot
+cat > /etc/systemd/system/recuperar-parser-boot.service << 'EOF'
+[Unit]
+Description=Recuperar Parser após queda de energia
+After=postgresql.service rsyslog.service
+Wants=postgresql.service rsyslog.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/recuperar_parser.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable recuperar-parser-boot.service
+
+print_success "Recuperação automática no boot configurada"
 
 # Script de Monitoramento do /dev/shm
 cat > /usr/local/bin/clean_shm.sh << 'EOF'
