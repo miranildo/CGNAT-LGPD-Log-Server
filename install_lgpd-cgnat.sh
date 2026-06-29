@@ -416,8 +416,8 @@ print_success "PostgreSQL 15 rodando na porta 5432"
 # ============================================================
 print_header "7. CRIANDO USUÁRIOS E BANCO"
 
-sudo -u postgres psql -c "CREATE USER cgnat_parser WITH PASSWORD 'WBT@0000000';" 2>/dev/null || true
-sudo -u postgres psql -c "CREATE USER cgnat_admin WITH PASSWORD 'WBT@00000000';" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER cgnat_parser WITH PASSWORD '${DB_PASS_PARSER}';" 2>/dev/null || true
+sudo -u postgres psql -c "CREATE USER cgnat_admin WITH PASSWORD '${DB_PASS_CGNAT}';" 2>/dev/null || true
 sudo -u postgres psql -c "CREATE DATABASE cgnat_logs OWNER cgnat_parser;" 2>/dev/null || true
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_parser;" 2>/dev/null || true
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;" 2>/dev/null || true
@@ -636,7 +636,7 @@ print_success "Ambiente Python configurado"
 # ============================================================
 print_header "10. CRIANDO PARSER PYTHON"
 
-cat > /opt/cgnat/cgnat_parser.py << 'EOF'
+cat > /opt/cgnat/cgnat_parser.py << EOF
 #!/usr/bin/env python3
 # /opt/cgnat/cgnat_parser.py - VERSÃO COM AUTO-RECONEXÃO
 
@@ -687,7 +687,7 @@ class CGNATParserASR:
                     host="localhost",
                     database="cgnat_logs",
                     user="cgnat_parser",
-                    password="Wbt@07717125",
+                    password="${DB_PASS_PARSER}",
                     connect_timeout=10
                 )
                 self.conn.autocommit = False
