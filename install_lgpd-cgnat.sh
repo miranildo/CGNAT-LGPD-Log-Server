@@ -3504,7 +3504,7 @@ chmod +x /usr/local/bin/recuperar_parser.sh
 print_success "Script de recuperação do parser criado"
 
 # ============================================================
-# 15.9. SCRIPT DE RECUPERAÇÃO DO POSTGRESQL
+# 15.9. SCRIPT DE RECUPERAÇÃO DO POSTGRESQL (CORRIGIDO)
 # ============================================================
 print_header "15.9. CRIANDO SCRIPT DE RECUPERAÇÃO DO POSTGRESQL"
 
@@ -3552,7 +3552,6 @@ if [ $? -eq 0 ]; then
 else
     echo "  ⚠️ Falha na recuperação. Resetando WAL..."
     pg_resetwal -f /var/lib/postgresql/15/main 2>/dev/null
-    
     echo "  🔄 Iniciando cluster..."
     pg_ctlcluster 15 main start 2>/dev/null
 fi
@@ -3567,7 +3566,7 @@ pg_lsclusters
 if pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
     echo ""
     echo "  ✅ PostgreSQL 15 rodando com sucesso!"
-    
+
     # Recriar usuários se necessário
     echo ""
     echo "7. Verificando usuários..."
@@ -3579,10 +3578,7 @@ if pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
         sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_parser;" 2>/dev/null
         sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;" 2>/dev/null
     }
-    
-    # Reiniciar parser
-    /usr/local/bin/recuperar_parser.sh 2>/dev/null || systemctl restart cgnat-parser
-    
+
     echo ""
     echo "  ✅ Recuperação concluída!"
 else
@@ -3595,7 +3591,7 @@ echo "========================================"
 EOF
 
 chmod +x /usr/local/bin/recuperar_postgres.sh
-print_success "Script de recuperação do PostgreSQL criado"
+print_success "Script de recuperação do PostgreSQL corrigido (não chama mais o parser)"
 
 # ============================================================
 # 15.10. RECUPERAÇÃO AUTOMÁTICA NO BOOT
