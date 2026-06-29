@@ -249,6 +249,12 @@ for VER in 17 18; do
     fi
 done
 
+# REMOVER METAPACOTE RESIDUAL
+print_info "Removendo metapacote residual..."
+if dpkg -l 2>/dev/null | grep -q "rc  postgresql "; then
+    dpkg --purge postgresql 2>/dev/null || true
+fi
+
 # CORRIGIR PACOTES
 print_info "Corrigindo pacotes quebrados..."
 apt --fix-broken install -y 2>/dev/null || true
