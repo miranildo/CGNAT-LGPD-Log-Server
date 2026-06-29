@@ -45,6 +45,7 @@ MK_AUTH_IP="172.31.255.2"
 MK_AUTH_USER="root"
 MK_AUTH_PASS="25077171@Mlss"
 MK_AUTH_DB_PASS="vertrigo"
+MK_AUTH_DB_TABLE="mkradius"
 CISCO_IP="190.196.243.250"
 CISCO_USER="admin"
 CISCO_PASS="Wbt077171"
@@ -936,17 +937,17 @@ print_success "Service do parser criado com auto-restart"
 print_header "12. CRIANDO ARQUIVOS PHP"
 
 # 12.1 CONFIG.PHP
-cat > /var/www/html/cgnat/config.php << 'CONFIG_PHP'
+cat > /var/www/html/cgnat/config.php << CONFIG_PHP
 <?php
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'cgnat_logs');
 define('DB_USER', 'cgnat_admin');
-define('DB_PASS', 'WBT@00000000');
-define('MK_AUTH_HOST', '172.31.255.2');
-define('MK_AUTH_DB', 'mkradius');
-define('MK_AUTH_USER', 'root');
-define('MK_AUTH_PASS', 'vertrigo');
-date_default_timezone_set('America/Recife');
+define('DB_PASS', '${DB_PASS_CGNAT}');
+define('MK_AUTH_HOST', '${MK_AUTH_IP}');
+define('MK_AUTH_DB', '${MK_AUTH_DB_TABLE}');
+define('MK_AUTH_USER', '${MK_AUTH_USER}');
+define('MK_AUTH_PASS', '${MK_AUTH_DB_PASS}');
+date_default_timezone_set('${TIMEZONE}');
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
