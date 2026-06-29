@@ -4625,14 +4625,14 @@ EOF
 fi
 
 # ============================================================
-# 19.1. CONFIGURAR MONITOR NO CONSOLE FÍSICO
+# 19.1. CONFIGURAR MONITOR NO CONSOLE (BOOT + Ctrl+C)
 # ============================================================
 print_header "19.1. CONFIGURANDO MONITOR NO CONSOLE FÍSICO"
 
-print_info "Configurando monitor para exibir automaticamente no console físico (tty1)..."
+print_info "Configurando monitor para iniciar automaticamente no boot..."
 
-# Criar serviço systemd para o monitor no console
-cat > /etc/systemd/system/cgnat-monitor-console.service << 'EOF'
+# Criar serviço systemd
+cat > /etc/systemd/system/cgnat-console.service << 'EOF'
 [Unit]
 Description=CGNAT Monitor on Console
 After=network.target postgresql.service
@@ -4647,20 +4647,23 @@ RestartSec=5
 StandardInput=tty
 StandardOutput=tty
 TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Habilitar serviço
+# Habilitar e iniciar
 systemctl daemon-reload
-systemctl enable cgnat-monitor-console.service
-systemctl start cgnat-monitor-console.service
+systemctl enable cgnat-console.service
+systemctl start cgnat-console.service
 
-print_success "✅ Monitor configurado para exibir no console físico (tty1)!"
-print_info "🔹 O monitor será exibido automaticamente no monitor local"
-print_info "🔹 O SSH continua exibindo o monitor ao abrir (já configurado)"
-print_info "🔹 Para parar o monitor no console: systemctl stop cgnat-monitor-console.service"
+print_success "✅ Monitor configurado no console físico!"
+print_info "🔹 Após o boot, o dashboard será exibido automaticamente"
+print_info "🔹 Para sair do dashboard: Ctrl+C"
+print_info "🔹 Para voltar ao dashboard: monitor_cgnat.sh -d"
+print_info "🔹 SSH continua normal"
 
 # ============================================================
 # INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
