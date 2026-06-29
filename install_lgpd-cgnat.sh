@@ -217,57 +217,50 @@ fi
 print_success "Pacotes instalados"
 
 # ============================================================
-# 4.5. FIXAR VERSÃO DO POSTGRESQL (BLOQUEAR 16, 17 E 18)
+# 4.5. FIXAR VERSÃO DO POSTGRESQL (DEFINITIVO)
 # ============================================================
 print_header "4.5. FIXANDO VERSÃO DO POSTGRESQL"
 
 # ============================================================
-# REMOVER POSTGRESQL 17 E 18 (PADRÃO DO DEBIAN 13)
+# REMOVER METAPACOTE POSTGRESQL (QUE PUXA O 17)
 # ============================================================
-print_info "Verificando PostgreSQL 17 e 18 (padrão do Debian 13)..."
+print_info "Removendo metapacote 'postgresql'..."
 
-# Parar clusters 17 e 18
+if dpkg -l 2>/dev/null | grep -q "^ii  postgresql "; then
+    DEBIAN_FRONTEND=noninteractive dpkg -r --force-depends postgresql 2>/dev/null || true
+fi
+
+# ============================================================
+# REMOVER POSTGRESQL 17 E 18
+# ============================================================
+print_info "Removendo PostgreSQL 17/18..."
+
+# Parar clusters
 for VER in 17 18; do
     if pg_lsclusters 2>/dev/null | grep -q "${VER}.*online"; then
-        print_info "Parando cluster PostgreSQL ${VER}..."
         systemctl stop postgresql@${VER}-main 2>/dev/null
         pg_dropcluster ${VER} main --stop 2>/dev/null
     fi
-    
-    # Remover pacotes mesmo que não estejam rodando
-    if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
-        print_info "Removendo PostgreSQL ${VER} (pacotes)..."
-        DEBIAN_FRONTEND=noninteractive apt remove --purge -y \
-            postgresql-${VER} \
-            postgresql-client-${VER} \
-            postgresql-${VER}-doc \
-            postgresql-client-${VER}-dbg \
-            2>/dev/null || true
-    fi
 done
 
-# Limpar dependências removidas
-apt autoremove -y 2>/dev/null || true
-
-# ============================================================
-# VERIFICAR SE O 17 OU 18 AINDA ESTÃO INSTALADOS
-# ============================================================
+# Remover pacotes com força
 for VER in 17 18; do
     if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
-        print_warning "PostgreSQL ${VER} ainda instalado! Forçando remoção..."
-        DEBIAN_FRONTEND=noninteractive apt remove --purge -y \
-            postgresql-${VER} \
-            postgresql-client-${VER} \
-            postgresql-${VER}-doc \
-            postgresql-client-${VER}-dbg \
-            2>/dev/null || true
+        DEBIAN_FRONTEND=noninteractive dpkg --remove --force-remove-reinstreq postgresql-${VER} 2>/dev/null || true
+        DEBIAN_FRONTEND=noninteractive dpkg --remove --force-remove-reinstreq postgresql-client-${VER} 2>/dev/null || true
     fi
 done
 
-print_success "PostgreSQL 17 e 18 removidos"
+# ============================================================
+# CORRIGIR PACOTES QUEBRADOS
+# ============================================================
+print_info "Corrigindo pacotes quebrados..."
+apt --fix-broken install -y 2>/dev/null || true
+apt autoremove -y 2>/dev/null || true
+apt autoclean -y 2>/dev/null || true
 
 # ============================================================
-# BLOQUEAR POSTGRESQL 16, 17 E 18 PARA SEMPRE
+# BLOQUEAR POSTGRESQL 16, 17 E 18
 # ============================================================
 print_info "Bloqueando PostgreSQL 16, 17 e 18..."
 
@@ -296,57 +289,43 @@ Package: postgresql-client-18*
 Pin: version *
 Pin-Priority: -1
 
-Package: postgresql-16-doc*
-Pin: version *
-Pin-Priority: -1
-
-Package: postgresql-17-doc*
-Pin: version *
-Pin-Priority: -1
-
-Package: postgresql-18-doc*
+Package: postgresql
 Pin: version *
 Pin-Priority: -1
 EOF
 
 # ============================================================
-# FIXAR POSTGRESQL 15 (APENAS PACOTES EXISTENTES)
+# FIXAR POSTGRESQL 15
 # ============================================================
 print_info "Fixando PostgreSQL 15..."
-
-# Fixar apenas os pacotes que existem
 apt-mark hold postgresql-15 postgresql-client-15 2>/dev/null || true
 
-# Verificar se postgresql-contrib-15 existe no sistema
-if apt-cache show postgresql-contrib-15 2>/dev/null | grep -q "Package: postgresql-contrib-15"; then
-    apt-mark hold postgresql-contrib-15 2>/dev/null || true
-else
-    print_info "postgresql-contrib-15 não disponível - ignorando hold"
-fi
-
-print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17/18 removidos/bloqueados"
+print_success "✅ PostgreSQL 15 fixado! PostgreSQL 17/18 removidos e bloqueados"
 
 # ============================================================
-# VERIFICAR SE PORTAS ESTÃO LIVRES (COM MENSAGEM CLARA)
+# VERIFICAR SE O POSTGRESQL 15 ESTÁ RODANDO
 # ============================================================
-print_info "Verificando porta 5432..."
-
-# Verificar se a porta 5432 está ocupada
-if ss -tlnp 2>/dev/null | grep -q ":5432"; then
-    print_warning "⚠️ Porta 5432 ocupada! Liberando..."
-    fuser -k 5432/tcp 2>/dev/null
-    sleep 2
-    
-    # Verificar novamente se liberou
-    if ss -tlnp 2>/dev/null | grep -q ":5432"; then
-        print_error "❌ Não foi possível liberar a porta 5432!"
-        print_info "Verifique manualmente: ss -tlnp | grep 5432"
-    else
-        print_success "✅ Porta 5432 liberada com sucesso!"
-    fi
-else
-    print_success "✅ Porta 5432 disponível!"
+if ! pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
+    print_info "Criando cluster PostgreSQL 15..."
+    pg_createcluster 15 main --start -u postgres -p 5432
+    systemctl start postgresql@15-main
 fi
+
+# ============================================================
+# VERIFICAÇÃO FINAL
+# ============================================================
+print_info "Verificando instalação final..."
+echo ""
+echo "📊 Pacotes PostgreSQL instalados:"
+dpkg -l 2>/dev/null | grep postgresql | grep -E "postgresql-[0-9]+" || echo "✅ Apenas PostgreSQL 15 instalado"
+echo ""
+echo "📊 Clusters PostgreSQL:"
+pg_lsclusters
+echo ""
+echo "📊 Status do PostgreSQL 15:"
+systemctl status postgresql@15-main --no-pager | head -5
+
+print_success "✅ PostgreSQL 15 fixado com sucesso!"
 
 # ============================================================
 # 5. CRIAR DIRETÓRIOS
