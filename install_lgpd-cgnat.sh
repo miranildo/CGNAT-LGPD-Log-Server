@@ -226,7 +226,7 @@ print_header "4.5. FIXANDO VERSÃO DO POSTGRESQL"
 # ============================================================
 print_info "Verificando PostgreSQL 17 e 18 (padrão do Debian 13)..."
 
-# Parar e remover clusters 17 e 18
+# Parar clusters 17 e 18
 for VER in 17 18; do
     if pg_lsclusters 2>/dev/null | grep -q "${VER}.*online"; then
         print_info "Parando cluster PostgreSQL ${VER}..."
@@ -235,13 +235,21 @@ for VER in 17 18; do
     fi
 done
 
-# Remover pacotes do PostgreSQL 17 e 18
+# Remover pacotes de forma SILENCIOSA (sem interação)
+# DEBIAN_FRONTEND=noninteractive evita perguntas durante a remoção
 for VER in 17 18; do
     if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
         print_info "Removendo PostgreSQL ${VER}..."
-        apt remove --purge -y postgresql-${VER} postgresql-client-${VER} 2>/dev/null || true
+        DEBIAN_FRONTEND=noninteractive apt remove --purge -y \
+            postgresql-${VER} \
+            postgresql-client-${VER} \
+            postgresql-${VER}-doc \
+            postgresql-client-${VER}-dbg \
+            2>/dev/null || true
     fi
 done
+
+# Limpar dependências removidas
 apt autoremove -y 2>/dev/null || true
 print_success "PostgreSQL 17 e 18 removidos"
 
@@ -289,21 +297,21 @@ Pin-Priority: -1
 EOF
 
 # ============================================================
-# FIXAR POSTGRESQL 15 (APENAS OS PACOTES QUE EXISTEM)
+# FIXAR POSTGRESQL 15 (APENAS PACOTES EXISTENTES)
 # ============================================================
 print_info "Fixando PostgreSQL 15..."
 
 # Fixar apenas os pacotes que existem
 apt-mark hold postgresql-15 postgresql-client-15 2>/dev/null || true
 
-# Verificar se postgresql-contrib-15 existe
+# Verificar se postgresql-contrib-15 existe no sistema
 if apt-cache show postgresql-contrib-15 2>/dev/null | grep -q "Package: postgresql-contrib-15"; then
     apt-mark hold postgresql-contrib-15 2>/dev/null || true
 else
     print_info "postgresql-contrib-15 não disponível - ignorando hold"
 fi
 
-print_success "Versão do PostgreSQL fixada (15)"
+print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17/18 removidos/bloqueados"
 
 # ============================================================
 # VERIFICAR SE PORTAS ESTÃO LIVRES
@@ -311,6 +319,7 @@ print_success "Versão do PostgreSQL fixada (15)"
 print_info "Verificando porta 5432..."
 if ss -tlnp 2>/dev/null | grep -q ":5432"; then
     print_warning "Porta 5432 ocupada. Aguardando liberação..."
+    fuser -k 5432/tcp 2>/dev/null
     sleep 3
 fi
 
