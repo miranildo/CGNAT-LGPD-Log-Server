@@ -3665,11 +3665,11 @@ chmod +x /usr/local/bin/reiniciar_tudo.sh
 print_success "✅ Script 'reiniciar_tudo.sh' criado"
 
 # ============================================================
-# 15.12. RESUMO DE RECUPERAÇÃO
+# 15.12. CRIANDO RESUMO DE RECUPERAÇÃO (COM VARIÁVEIS EXPANDIDAS)
 # ============================================================
 print_header "15.12. CRIANDO RESUMO DE RECUPERAÇÃO"
 
-cat > /root/COMANDOS_CGNAT.txt << 'EOF'
+cat > /root/COMANDOS_CGNAT.txt << EOF
 ============================================================
    📋 COMANDOS PARA RECUPERAÇÃO DO SISTEMA CGNAT
 ============================================================
@@ -3710,8 +3710,9 @@ cat > /root/COMANDOS_CGNAT.txt << 'EOF'
   /usr/local/bin/verificar_pipe.sh      # Verificar e recriar pipe
 
 ============================================================
-  SISTEMA INSTALADO EM: $(date)
+  SISTEMA INSTALADO EM: $(date '+%d/%m/%Y %H:%M:%S')
   HOST: $(hostname)
+  IP: $(hostname -I | awk '{print \$1}')
 ============================================================
 EOF
 
