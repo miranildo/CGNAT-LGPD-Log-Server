@@ -3788,7 +3788,7 @@ show_dashboard() {
         echo -e "  ${YELLOW}⚠️${NC} Nenhum log nos últimos 5 minutos!"
     fi
     
-    ERRORS=$(tail -100 /var/log/cgnat/parser.log 2>/dev/null | grep -i "ERROR" | wc -l)
+    ERRORS=$(tail -100 /var/log/cgnat/parser.log 2>/dev/null | grep -c "ERROR:")
     if [ $ERRORS -gt 0 ]; then
         echo -e "  ${RED}⚠️${NC} ${ERRORS} erros no parser (últimas 100 linhas)"
     else
