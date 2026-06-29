@@ -329,6 +329,10 @@ echo "📊 Clusters PostgreSQL:"
 pg_lsclusters
 echo ""
 echo "📊 Status do PostgreSQL 15:"
+# Remover completamente o metapacote residual
+dpkg --purge postgresql 2>/dev/null
+# Verificar novamente
+dpkg -l | grep postgresql
 systemctl status postgresql@15-main --no-pager | head -5
 
 print_success "✅ PostgreSQL 15 fixado com sucesso!"
