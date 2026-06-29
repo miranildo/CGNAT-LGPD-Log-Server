@@ -3721,27 +3721,10 @@ parser_esta_rodando() {
         return 1
     fi
     
-    # 3. Verificar há quanto tempo o parser está rodando
-    PARSER_PID=$(pgrep -f "python.*cgnat_parser.py" | head -1)
-    PARSER_START=$(ps -o lstart= -p $PARSER_PID 2>/dev/null | xargs)
-    
-    if [ ! -z "$PARSER_START" ]; then
-        PARSER_START_TS=$(date -d "$PARSER_START" +%s 2>/dev/null || echo 0)
-        AGORA=$(date +%s)
-        PARSER_UPTIME=$((AGORA - PARSER_START_TS))
-    else
-        PARSER_UPTIME=0
-    fi
-    
-    # Se o parser foi iniciado há menos de 60 segundos, considera RODANDO
-    if [ $PARSER_UPTIME -lt 60 ]; then
-        return 0  # RODANDO (acabou de iniciar)
-    fi
-    
-    # 4. Verificar se há logs recentes (últimos 60 segundos)
+    # 3. Verificar se há logs nos últimos 60 segundos
     ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
     
-    # Se não tem logs ainda, considera rodando (acabou de iniciar)
+    # Se não tem logs ainda, considera RODANDO (acabou de iniciar)
     if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
         return 0
     fi
@@ -3751,11 +3734,11 @@ parser_esta_rodando() {
     AGORA=$(date +%s)
     DIFERENCA=$((AGORA - ULTIMO_TIMESTAMP))
     
-    # Se o último log foi há menos de 60 segundos, está rodando
+    # Se o último log foi há menos de 60 segundos, está RODANDO
     if [ $DIFERENCA -lt 60 ]; then
         return 0
     else
-        # Se não tem logs há mais de 60 segundos, o parser travou
+        # Se não tem logs há mais de 60 segundos, está PARADO
         return 1
     fi
 }
