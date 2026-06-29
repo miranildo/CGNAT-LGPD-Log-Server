@@ -61,7 +61,6 @@ MAX_TENTATIVAS="3"
 
 clear
 print_header "🚀 INSTALADOR LGPD CGNAT LOGS"
-echo ""
 echo "📌 Versão 1.0"
 echo ""
 echo "Serão instalados:"
