@@ -4584,7 +4584,7 @@ sleep 5
 # ============================================================
 print_header "19. CONFIGURANDO INICIALIZAÇÃO AUTOMÁTICA DO MONITOR"
 
-print_info "Configurando monitor para iniciar automaticamente ao abrir o terminal..."
+print_info "Configurando monitor para iniciar automaticamente..."
 
 # Verificar se o arquivo .bashrc existe
 if [ -f /root/.bashrc ]; then
@@ -4594,8 +4594,10 @@ if [ -f /root/.bashrc ]; then
 
 # ============================================================
 # INICIAR MONITORAMENTO CGNAT AUTOMATICAMENTE
+# (Apenas em terminais interativos, ex: SSH manual)
 # ============================================================
-if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
+if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -t 0 ]; then
+    echo "🚀 Iniciando monitor CGNAT..."
     /usr/local/bin/monitor_cgnat.sh -d
 fi
 EOF
@@ -4612,8 +4614,10 @@ else
 
 # ============================================================
 # INICIAR MONITORAMENTO CGNAT AUTOMATICAMENTE
+# (Apenas em terminais interativos, ex: SSH manual)
 # ============================================================
-if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
+if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -t 0 ]; then
+    echo "🚀 Iniciando monitor CGNAT..."
     /usr/local/bin/monitor_cgnat.sh -d
 fi
 EOF
@@ -4623,8 +4627,8 @@ fi
 # ============================================================
 # INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
 # ============================================================
-print_info "Iniciando monitoramento em 3 segundos..."
-sleep 3
+print_info "Iniciando monitoramento em 5 segundos..."
+sleep 5
 
 # Executar o monitor em background (ou foreground)
 /usr/local/bin/monitor_cgnat.sh -d
