@@ -4659,10 +4659,10 @@ EOF
 chmod 440 /etc/sudoers.d/monitor
 print_success "Permissões do usuário monitor configuradas (sudo sem senha)"
 
-# 2. Configurar .bashrc do monitor (com sleep de 30 segundos)
+# 2. Configurar .bashrc do monitor (com sleep de 5 segundos)
 cat > /home/monitor/.bashrc << 'EOF'
 # ============================================================
-# INICIAR MONITOR CGNAT AUTOMATICAMENTE (SLEEP 30s)
+# INICIAR MONITOR CGNAT AUTOMATICAMENTE (SLEEP 5s)
 # ============================================================
 if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
     clear
@@ -4691,7 +4691,7 @@ print_success "Login automático configurado no tty1"
 systemctl restart getty@tty1.service
 
 print_success "✅ Monitor configurado no console físico!"
-print_info "🔹 Console: sleep 30s antes de iniciar"
+print_info "🔹 Console: sleep 5s antes de iniciar"
 print_info "🔹 SSH: inicia imediatamente"
 print_info "🔹 Para sair do monitor: Ctrl+C"
 
