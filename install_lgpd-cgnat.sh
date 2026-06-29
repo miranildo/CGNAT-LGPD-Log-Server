@@ -3711,34 +3711,32 @@ show_help() {
 # FUNÇÃO: VERIFICAR SE O PARSER ESTÁ RODANDO DE VERDADE
 # ============================================================
 parser_esta_rodando() {
-    # 1. Verificar se o serviço está rodando
-    if ! systemctl is-active --quiet cgnat-parser 2>/dev/null; then
+    # 1. Verificar se o serviço está rodando (SEM CACHE)
+    systemctl is-active --quiet cgnat-parser 2>/dev/null
+    if [ $? -ne 0 ]; then
         return 1
     fi
     
     # 2. Verificar se o processo do parser existe
-    if ! pgrep -f "python.*cgnat_parser.py" > /dev/null; then
+    pgrep -f "python.*cgnat_parser.py" > /dev/null
+    if [ $? -ne 0 ]; then
         return 1
     fi
     
     # 3. Verificar se há logs nos últimos 60 segundos
     ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
     
-    # Se não tem logs ainda, considera RODANDO (acabou de iniciar)
     if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
         return 0
     fi
     
-    # Converter para timestamp
     ULTIMO_TIMESTAMP=$(date -d "$ULTIMO_LOG" +%s 2>/dev/null || echo 0)
     AGORA=$(date +%s)
     DIFERENCA=$((AGORA - ULTIMO_TIMESTAMP))
     
-    # Se o último log foi há menos de 60 segundos, está RODANDO
     if [ $DIFERENCA -lt 60 ]; then
         return 0
     else
-        # Se não tem logs há mais de 60 segundos, está PARADO
         return 1
     fi
 }
