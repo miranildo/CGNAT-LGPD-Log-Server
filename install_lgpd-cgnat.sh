@@ -3445,14 +3445,14 @@ chmod +x /usr/local/bin/sync_ipv6_cisco.sh
 print_success "Script de sincronização IPv6 com histórico criado"
 
 # ============================================================
-# 15.8. SCRIPT DE RECUPERAÇÃO DO PARSER
+# 15.8. SCRIPT DE RECUPERAÇÃO DO PARSER (MANUAL)
 # ============================================================
 print_header "15.8. CRIANDO SCRIPT DE RECUPERAÇÃO DO PARSER"
 
 cat > /usr/local/bin/recuperar_parser.sh << 'EOF'
 #!/bin/bash
 # ============================================================
-# RECUPERAÇÃO DO PARSER CGNAT APÓS QUEDA
+# RECUPERAÇÃO DO PARSER CGNAT (MANUAL)
 # ============================================================
 
 echo "========================================"
@@ -3465,7 +3465,7 @@ echo "1. Parando serviços..."
 systemctl stop cgnat-parser 2>/dev/null
 systemctl stop rsyslog 2>/dev/null
 
-# 2. Remover pipe antigo e recriar
+# 2. Recriar pipe
 echo "2. Recriando pipe..."
 rm -f /var/run/cgnat.pipe
 mkfifo /var/run/cgnat.pipe
@@ -3501,17 +3501,17 @@ echo "========================================"
 EOF
 
 chmod +x /usr/local/bin/recuperar_parser.sh
-print_success "Script de recuperação do parser criado"
+print_success "Script de recuperação do parser criado (manual)"
 
 # ============================================================
-# 15.9. SCRIPT DE RECUPERAÇÃO DO POSTGRESQL (CORRIGIDO)
+# 15.9. SCRIPT DE RECUPERAÇÃO DO POSTGRESQL (MANUAL)
 # ============================================================
 print_header "15.9. CRIANDO SCRIPT DE RECUPERAÇÃO DO POSTGRESQL"
 
 cat > /usr/local/bin/recuperar_postgres.sh << 'EOF'
 #!/bin/bash
 # ============================================================
-# RECUPERAÇÃO DO POSTGRESQL APÓS QUEDA DE ENERGIA
+# RECUPERAÇÃO DO POSTGRESQL (MANUAL)
 # ============================================================
 
 echo "========================================"
@@ -3579,6 +3579,13 @@ if pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
         sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE cgnat_logs TO cgnat_admin;" 2>/dev/null
     }
 
+    # NÃO CHAMAR O RECUPERAR_PARSER AQUI!
+    # O parser é gerenciado pelo systemd (Restart=always)
+    if ! systemctl is-active --quiet cgnat-parser 2>/dev/null; then
+        echo "  🔄 Iniciando parser..."
+        systemctl restart cgnat-parser
+    fi
+
     echo ""
     echo "  ✅ Recuperação concluída!"
 else
@@ -3591,65 +3598,125 @@ echo "========================================"
 EOF
 
 chmod +x /usr/local/bin/recuperar_postgres.sh
-print_success "Script de recuperação do PostgreSQL corrigido (não chama mais o parser)"
+print_success "Script de recuperação do PostgreSQL criado (manual)"
 
 # ============================================================
-# 15.10. RECUPERAÇÃO AUTOMÁTICA NO BOOT
+# 15.10. MONITOR DO PIPE (AUTOMÁTICO VIA CRON)
 # ============================================================
-print_header "15.10. CONFIGURANDO RECUPERAÇÃO AUTOMÁTICA NO BOOT"
+print_header "15.10. CRIANDO MONITOR DO PIPE"
 
-# Service para recuperar PostgreSQL no boot
-cat > /etc/systemd/system/recuperar-postgres-boot.service << 'EOF'
-[Unit]
-Description=Recuperar PostgreSQL após queda de energia
-After=network.target
-Before=postgresql.service
+cat > /usr/local/bin/verificar_pipe.sh << 'EOF'
+#!/bin/bash
+# ============================================================
+# VERIFICAR E RECRIAR O PIPE SE NECESSÁRIO
+# ============================================================
 
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/recuperar_postgres.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
+if [ ! -p /var/run/cgnat.pipe ]; then
+    echo "$(date): ⚠️ Pipe não encontrado! Recriando..." >> /var/log/cgnat/pipe.log
+    mkfifo /var/run/cgnat.pipe
+    chmod 666 /var/run/cgnat.pipe
+    systemctl restart cgnat-parser 2>/dev/null
+    echo "$(date): ✅ Pipe recriado e parser reiniciado!" >> /var/log/cgnat/pipe.log
+fi
 EOF
 
-systemctl daemon-reload
-systemctl enable recuperar-postgres-boot.service
+chmod +x /usr/local/bin/verificar_pipe.sh
+
+# Adicionar ao crontab (a cada minuto)
+(crontab -l 2>/dev/null; echo "* * * * * /usr/local/bin/verificar_pipe.sh") | crontab -
+
+print_success "✅ Monitor do pipe configurado (verifica a cada minuto)"
 
 # ============================================================
-# 15.11. MONITORAMENTO CONTÍNUO (CRON)
+# 15.11. SCRIPTS DE RECUPERAÇÃO MANUAIS (SEM BOOT)
 # ============================================================
-print_header "15.11. CONFIGURANDO MONITORAMENTO CONTÍNUO"
+print_header "15.11. CONFIGURANDO SCRIPTS MANUAIS (SEM BOOT)"
 
-# Adicionar verificação periódica do parser
-(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/recuperar_parser.sh >> /var/log/cgnat/recuperar_parser.log 2>&1") | crontab -
+# Script para reiniciar tudo manualmente
+cat > /usr/local/bin/reiniciar_tudo.sh << 'EOF'
+#!/bin/bash
+# ============================================================
+# REINICIAR TODOS OS SERVIÇOS CGNAT
+# ============================================================
 
-# Adicionar verificação do PostgreSQL a cada hora
-(crontab -l 2>/dev/null; echo "0 * * * * /usr/local/bin/recuperar_postgres.sh >> /var/log/cgnat/recuperar_postgres.log 2>&1") | crontab -
+echo "========================================"
+echo "  🔄 REINICIANDO TODOS OS SERVIÇOS"
+echo "  Data: $(date)"
+echo "========================================"
 
-print_success "Monitoramento contínuo configurado no cron"
+echo "1. Reiniciando rsyslog..."
+systemctl restart rsyslog
 
-# Service para recuperar parser no boot
-cat > /etc/systemd/system/recuperar-parser-boot.service << 'EOF'
-[Unit]
-Description=Recuperar Parser após queda de energia
-After=postgresql.service rsyslog.service
-Wants=postgresql.service rsyslog.service
+echo "2. Reiniciando PostgreSQL..."
+systemctl restart postgresql@15-main
 
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/recuperar_parser.sh
-RemainAfterExit=yes
+echo "3. Reiniciando parser..."
+systemctl restart cgnat-parser
 
-[Install]
-WantedBy=multi-user.target
+echo "4. Reiniciando Apache..."
+systemctl restart apache2
+
+echo ""
+echo "✅ Serviços reiniciados!"
+echo "========================================"
 EOF
 
-systemctl daemon-reload
-systemctl enable recuperar-parser-boot.service
+chmod +x /usr/local/bin/reiniciar_tudo.sh
+print_success "✅ Script 'reiniciar_tudo.sh' criado"
 
-print_success "Recuperação automática no boot configurada"
+# ============================================================
+# 15.12. RESUMO DE RECUPERAÇÃO
+# ============================================================
+print_header "15.12. CRIANDO RESUMO DE RECUPERAÇÃO"
+
+cat > /root/COMANDOS_CGNAT.txt << 'EOF'
+============================================================
+   📋 COMANDOS PARA RECUPERAÇÃO DO SISTEMA CGNAT
+============================================================
+
+🔹 VERIFICAR STATUS
+  monitor_cgnat.sh -d          # Dashboard completo
+  monitor_cgnat.sh -c          # Diagnóstico rápido
+
+🔹 RECUPERAR PARSER (TRAVOU)
+  systemctl restart cgnat-parser
+  /usr/local/bin/recuperar_parser.sh
+
+🔹 RECUPERAR POSTGRESQL (CORROMPEU)
+  /usr/local/bin/recuperar_postgres.sh
+
+🔹 RECUPERAR O PIPE (FOI DELETADO)
+  mkfifo /var/run/cgnat.pipe
+  chmod 666 /var/run/cgnat.pipe
+  systemctl restart cgnat-parser
+
+🔹 REINICIAR TUDO DE UMA VEZ
+  /usr/local/bin/reiniciar_tudo.sh
+
+🔹 VERIFICAR LOGS
+  tail -f /var/log/cgnat/parser.log
+  tail -f /var/log/cgnat/raw.log
+  journalctl -u cgnat-parser -f
+
+🔹 TESTAR TELEGRAM
+  /usr/local/bin/check_space.sh --test
+
+🔹 SINCRONIZAR CLIENTES
+  /usr/local/bin/sync_mkauth.sh
+  /usr/local/bin/sync_ipv6_cisco.sh
+
+🔹 MONITORAMENTO
+  /usr/local/bin/check_space.sh         # Verificar espaço
+  /usr/local/bin/verificar_pipe.sh      # Verificar e recriar pipe
+
+============================================================
+  SISTEMA INSTALADO EM: $(date)
+  HOST: $(hostname)
+============================================================
+EOF
+
+print_success "✅ Resumo salvo em /root/COMANDOS_CGNAT.txt"
+print_info "📋 Para visualizar: cat /root/COMANDOS_CGNAT.txt"
 
 # Script de Monitoramento do /dev/shm
 cat > /usr/local/bin/clean_shm.sh << 'EOF'
@@ -3668,9 +3735,6 @@ chmod +x /usr/local/bin/clean_shm.sh
 print_success "Scripts criados com sucesso!"
 
 # Script de Monitoramento da saúde do programa
-# ============================================================
-# 15.12. CRIAR SCRIPT DE MONITORAMENTO (VERSÃO FINAL)
-# ============================================================
 print_header "15.12. CRIANDO SCRIPT DE MONITORAMENTO"
 
 cat > /usr/local/bin/monitor_cgnat.sh << 'EOF'
