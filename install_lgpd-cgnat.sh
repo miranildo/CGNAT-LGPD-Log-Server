@@ -4625,6 +4625,44 @@ EOF
 fi
 
 # ============================================================
+# 19.1. CONFIGURAR MONITOR NO CONSOLE FÍSICO
+# ============================================================
+print_header "19.1. CONFIGURANDO MONITOR NO CONSOLE FÍSICO"
+
+print_info "Configurando monitor para exibir automaticamente no console físico (tty1)..."
+
+# Criar serviço systemd para o monitor no console
+cat > /etc/systemd/system/cgnat-monitor-console.service << 'EOF'
+[Unit]
+Description=CGNAT Monitor on Console
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/monitor_cgnat.sh -d
+Restart=always
+RestartSec=5
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Habilitar serviço
+systemctl daemon-reload
+systemctl enable cgnat-monitor-console.service
+systemctl start cgnat-monitor-console.service
+
+print_success "✅ Monitor configurado para exibir no console físico (tty1)!"
+print_info "🔹 O monitor será exibido automaticamente no monitor local"
+print_info "🔹 O SSH continua exibindo o monitor ao abrir (já configurado)"
+print_info "🔹 Para parar o monitor no console: systemctl stop cgnat-monitor-console.service"
+
+# ============================================================
 # INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
 # ============================================================
 print_info "Iniciando monitoramento em 5 segundos..."
