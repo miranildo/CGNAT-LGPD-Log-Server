@@ -3673,14 +3673,14 @@ print_success "Scripts criados com sucesso!"
 
 # Script de Monitoramento da saúde do programa
 # ============================================================
-# 15.12. CRIAR SCRIPT DE MONITORAMENTO (VERSÃO DEFINITIVA)
+# 15.12. CRIAR SCRIPT DE MONITORAMENTO (VERSÃO FINAL)
 # ============================================================
 print_header "15.12. CRIANDO SCRIPT DE MONITORAMENTO"
 
 cat > /usr/local/bin/monitor_cgnat.sh << 'EOF'
 #!/bin/bash
 # ============================================================
-# MONITORAMENTO CGNAT - VERSÃO DEFINITIVA
+# MONITORAMENTO CGNAT - VERSÃO FINAL
 # ============================================================
 
 RED='\033[0;31m'
@@ -3696,7 +3696,7 @@ BOLD='\033[1m'
 # FUNÇÃO: VERIFICAR SE O PARSER ESTÁ RODANDO
 # ============================================================
 parser_esta_rodando() {
-    # 1. Verificar se o processo do parser existe (pgrep)
+    # 1. Verificar se o processo do parser existe
     if ! pgrep -f "python.*cgnat_parser.py" > /dev/null; then
         return 1
     fi
@@ -3744,7 +3744,7 @@ show_dashboard() {
         echo -e "  ${RED}❌${NC} rsyslog: PARADO!"
     fi
     
-    # CHAMADA DA FUNÇÃO CORRETA
+    # PARSER - usando a função
     if parser_esta_rodando; then
         echo -e "  ${GREEN}✅${NC} cgnat-parser: rodando"
     else
@@ -3765,24 +3765,17 @@ show_dashboard() {
     ULTIMO_5MIN=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM cgnat_logs WHERE data_hora > NOW() - INTERVAL '5 minutes';" 2>/dev/null | xargs)
     ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
     
-    echo -e "  ${MAGENTA}📊${NC} Total de logs: ${BOLD}${TOTAL:-0}${NC}"
-    echo -e "  ${MAGENTA}📊${NC} Logs hoje: ${BOLD}${HOJE:-0}${NC}"
+    echo -e "  ${MAGENTA}📊${NC} Total: ${BOLD}${TOTAL:-0}${NC}"
+    echo -e "  ${MAGENTA}📊${NC} Hoje: ${BOLD}${HOJE:-0}${NC}"
     echo -e "  ${MAGENTA}📊${NC} Últimos 5 min: ${BOLD}${ULTIMO_5MIN:-0}${NC}"
-    [ ! -z "$ULTIMO_LOG" ] && echo -e "  ${MAGENTA}🕐${NC} Último log: ${ULTIMO_LOG}"
+    [ ! -z "$ULTIMO_LOG" ] && echo -e "  ${MAGENTA}🕐${NC} Último: ${ULTIMO_LOG}"
     echo ""
 
     # ESPAÇO
     echo -e "${CYAN}🔹 ESPAÇO:${NC}"
-    DISCO_USADO=$(df -h / | tail -1 | awk '{print $3}')
-    DISCO_TOTAL=$(df -h / | tail -1 | awk '{print $2}')
-    DISCO_PERC=$(df -h / | tail -1 | awk '{print $5}')
-    SHM_USADO=$(df -h /dev/shm | tail -1 | awk '{print $3}')
-    SHM_TOTAL=$(df -h /dev/shm | tail -1 | awk '{print $2}')
-    SHM_PERC=$(df -h /dev/shm | tail -1 | awk '{print $5}')
+    echo -e "  ${MAGENTA}💾${NC} Disco: $(df -h / | tail -1 | awk '{print $3 " de " $2 " (" $5 ")"}')"
+    echo -e "  ${MAGENTA}💾${NC} /dev/shm: $(df -h /dev/shm | tail -1 | awk '{print $3 " de " $2 " (" $5 ")"}')"
     DB_SIZE=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT pg_size_pretty(pg_database_size('cgnat_logs'));" 2>/dev/null | xargs)
-    
-    echo -e "  ${MAGENTA}💾${NC} Disco: ${DISCO_USADO} de ${DISCO_TOTAL} (${DISCO_PERC})"
-    echo -e "  ${MAGENTA}💾${NC} /dev/shm: ${SHM_USADO} de ${SHM_TOTAL} (${SHM_PERC})"
     echo -e "  ${MAGENTA}🗄️${NC} Banco: ${DB_SIZE:-N/A}"
     echo ""
 
@@ -3802,65 +3795,62 @@ show_dashboard() {
         MORTOS=$(echo "$AUTOVACUUM_DATA" | cut -d'|' -f3)
         PERC=$(echo "$AUTOVACUUM_DATA" | cut -d'|' -f4)
         if [ "$PERC" = "0.00" ]; then
-            echo -e "  ${GREEN}✅${NC} ${TABELA}: ${VIVOS} vivos, ${MORTOS} mortos (0%)"
+            echo -e "  ${GREEN}✅${NC} ${TABELA}: ${VIVOS} vivos, 0 mortos"
         else
             echo -e "  ${YELLOW}⚠️${NC} ${TABELA}: ${VIVOS} vivos, ${MORTOS} mortos (${PERC}%)"
         fi
     else
-        echo -e "  ${YELLOW}⚠️${NC} Aguardando primeira coleta..."
+        echo -e "  ${YELLOW}⚠️${NC} Aguardando..."
     fi
     echo ""
 
     # CLIENTES
     echo -e "${CYAN}🔹 CLIENTES:${NC}"
-    TOTAL_CLIENTES=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs)
-    ATIVOS=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs)
-    IPV6=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs)
-    echo -e "  ${MAGENTA}👥${NC} Total: ${BOLD}${TOTAL_CLIENTES:-0}${NC}"
-    echo -e "  ${MAGENTA}👥${NC} Ativos: ${BOLD}${ATIVOS:-0}${NC}"
-    echo -e "  ${MAGENTA}🌐${NC} Com IPv6: ${BOLD}${IPV6:-0}${NC}"
+    echo -e "  ${MAGENTA}👥${NC} Total: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes;" 2>/dev/null | xargs || echo 0)"
+    echo -e "  ${MAGENTA}👥${NC} Ativos: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ativo = true;" 2>/dev/null | xargs || echo 0)"
+    echo -e "  ${MAGENTA}🌐${NC} IPv6: $(sudo -u postgres psql -d cgnat_logs -t -c "SELECT COUNT(*) FROM clientes WHERE ipv6_prefix IS NOT NULL;" 2>/dev/null | xargs || echo 0)"
     echo ""
 
     # PARSER STATUS
     echo -e "${CYAN}🔹 PARSER:${NC}"
-    ULTIMAS_STATS=$(tail -5 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
+    ULTIMAS_STATS=$(tail -3 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
     if [ ! -z "$ULTIMAS_STATS" ]; then
         CREATED=$(echo "$ULTIMAS_STATS" | grep -oP 'Created=\K[0-9]+' 2>/dev/null || echo "0")
         DELETED=$(echo "$ULTIMAS_STATS" | grep -oP 'Deleted=\K[0-9]+' 2>/dev/null || echo "0")
         CACHE_HITS=$(echo "$ULTIMAS_STATS" | grep -oP 'hits=\K[0-9]+' 2>/dev/null || echo "0")
         CACHE_MISSES=$(echo "$ULTIMAS_STATS" | grep -oP 'misses=\K[0-9]+' 2>/dev/null || echo "0")
-        echo -e "  ${GREEN}✅${NC} Processando: Created=${CREATED}, Deleted=${DELETED}"
+        echo -e "  ${GREEN}✅${NC} Created=${CREATED}, Deleted=${DELETED}"
         echo -e "  ${GREEN}✅${NC} Cache: hits=${CACHE_HITS}, misses=${CACHE_MISSES}"
     else
-        echo -e "  ${YELLOW}⚠️${NC} Aguardando primeira leitura..."
+        echo -e "  ${YELLOW}⚠️${NC} Aguardando..."
     fi
     echo ""
 
     # ALERTAS
     echo -e "${CYAN}🔹 ALERTAS:${NC}"
-    SHM_PERC_NUM=$(echo $SHM_PERC | sed 's/%//')
-    DISCO_PERC_NUM=$(echo $DISCO_PERC | sed 's/%//')
+    SHM_PERC=$(df -h /dev/shm | tail -1 | awk '{print $5}' | sed 's/%//')
+    DISCO_PERC=$(df -h / | tail -1 | awk '{print $5}' | sed 's/%//')
     
-    if [ "$SHM_PERC_NUM" -gt 80 ] 2>/dev/null; then
-        echo -e "  ${RED}⚠️${NC} /dev/shm em ${SHM_PERC}% (ATENÇÃO!)"
+    if [ "$SHM_PERC" -gt 80 ] 2>/dev/null; then
+        echo -e "  ${RED}⚠️${NC} /dev/shm em ${SHM_PERC}%"
     fi
-    if [ "$DISCO_PERC_NUM" -gt 80 ] 2>/dev/null; then
-        echo -e "  ${RED}⚠️${NC} Disco em ${DISCO_PERC}% (ATENÇÃO!)"
+    if [ "$DISCO_PERC" -gt 80 ] 2>/dev/null; then
+        echo -e "  ${RED}⚠️${NC} Disco em ${DISCO_PERC}%"
     fi
     if [ "${ULTIMO_5MIN:-0}" -eq 0 ] && [ "${TOTAL:-0}" -gt 0 ]; then
-        echo -e "  ${YELLOW}⚠️${NC} Nenhum log nos últimos 5 minutos!"
+        echo -e "  ${YELLOW}⚠️${NC} Sem logs nos últimos 5 min"
     fi
+    
     ERRORS=$(tail -100 /var/log/cgnat/parser.log 2>/dev/null | grep -c "ERROR:")
     if [ $ERRORS -gt 0 ]; then
-        echo -e "  ${RED}⚠️${NC} ${ERRORS} erros no parser (últimas 100 linhas)"
+        echo -e "  ${RED}⚠️${NC} ${ERRORS} erros no parser"
     else
-        echo -e "  ${GREEN}✅${NC} Nenhum erro no parser"
+        echo -e "  ${GREEN}✅${NC} Nenhum erro"
     fi
 
     echo ""
     echo "============================================================"
-    echo "  🔄 Atualiza automaticamente a cada 5 segundos"
-    echo "  Pressione Ctrl+C para sair"
+    echo "  🔄 Atualiza a cada 5 segundos | Ctrl+C para sair"
     echo "============================================================"
 }
 
@@ -3874,7 +3864,7 @@ done
 EOF
 
 chmod +x /usr/local/bin/monitor_cgnat.sh
-print_success "Script de monitoramento criado (versão definitiva)"
+print_success "✅ Script de monitoramento criado (versão final)"
 
 # Script de Monitoramento de espaço em disco Alertas Telegram
 print_header "CRIANDO SCRIPT DE ALERTA TELEGRAM"
@@ -4628,7 +4618,6 @@ print_header "INICIANDO MONITORAMENTO"
 
 echo ""
 echo "⏳ O monitoramento será iniciado em 10 segundos..."
-echo "   Pressione ${GREEN}Ctrl+C${NC} para CANCELAR"
 echo ""
 
 # Contagem regressiva
