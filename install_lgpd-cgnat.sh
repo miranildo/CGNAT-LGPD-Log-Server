@@ -4589,21 +4589,23 @@ print_info "Configurando monitor para iniciar automaticamente..."
 # Verificar se o arquivo .bashrc existe
 if [ -f /root/.bashrc ]; then
     # Verificar se já foi adicionado antes
-    if ! grep -q "INICIAR MONITORAMENTO CGNAT" /root/.bashrc; then
+    if ! grep -q "CGNAT_MONITOR_RAN" /root/.bashrc; then
         cat >> /root/.bashrc << 'EOF'
 
 # ============================================================
-# INICIAR MONITORAMENTO CGNAT AUTOMATICAMENTE
-# (Apenas em terminais interativos, ex: SSH manual)
+# INICIAR MONITOR CGNAT NO SSH (COM CONTROLE)
 # ============================================================
-if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -t 0 ]; then
-    echo "🚀 Iniciando monitor CGNAT..."
+if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -n "$SSH_TTY" ] && [ -z "$CGNAT_MONITOR_RAN" ]; then
+    export CGNAT_MONITOR_RAN=1
+    echo "⏳ Aguardando serviços iniciarem (15 segundos)..."
+    sleep 15
     /usr/local/bin/monitor_cgnat.sh -d
+    unset CGNAT_MONITOR_RAN
 fi
 EOF
         print_success "✅ Monitor configurado para iniciar automaticamente!"
         print_info "🔹 Para testar: source /root/.bashrc"
-        print_info "🔹 Para sair do monitor: Ctrl+C"
+        print_info "🔹 Para sair do monitor: Ctrl+C (não vai voltar)"
     else
         print_info "ℹ️  Monitor já está configurado no .bashrc"
     fi
@@ -4613,12 +4615,14 @@ else
     cat >> /root/.bashrc << 'EOF'
 
 # ============================================================
-# INICIAR MONITORAMENTO CGNAT AUTOMATICAMENTE
-# (Apenas em terminais interativos, ex: SSH manual)
+# INICIAR MONITOR CGNAT NO SSH (COM CONTROLE)
 # ============================================================
-if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -t 0 ]; then
-    echo "🚀 Iniciando monitor CGNAT..."
+if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -n "$SSH_TTY" ] && [ -z "$CGNAT_MONITOR_RAN" ]; then
+    export CGNAT_MONITOR_RAN=1
+    echo "⏳ Aguardando serviços iniciarem (15 segundos)..."
+    sleep 15
     /usr/local/bin/monitor_cgnat.sh -d
+    unset CGNAT_MONITOR_RAN
 fi
 EOF
     print_success "✅ Monitor configurado para iniciar automaticamente!"
@@ -4641,21 +4645,41 @@ else
     print_info "Usuário 'monitor' já existe"
 fi
 
-# 2. Configurar .bashrc do monitor (com sleep)
+# ============================================================
+# ADICIONAR USUÁRIO MONITOR AO SUDOERS
+# ============================================================
+print_info "Configurando permissões do usuário monitor..."
+
+# Adicionar ao grupo sudo
+usermod -aG sudo monitor
+
+# Criar arquivo sudoers específico para monitor
+cat > /etc/sudoers.d/monitor << 'EOF'
+# Permissões para o usuário monitor (usado no dashboard)
+monitor ALL=(ALL) NOPASSWD: /usr/bin/psql, /usr/bin/systemctl, /usr/bin/df, /usr/bin/lsof, /usr/bin/tail, /usr/bin/journalctl, /usr/bin/tcpdump, /usr/bin/netstat, /usr/bin/ss, /bin/systemctl, /bin/df, /bin/lsof, /bin/tail, /bin/journalctl
+monitor ALL=(ALL) NOPASSWD: /usr/bin/pg_ctlcluster, /usr/bin/pg_lsclusters, /usr/bin/pg_createcluster, /usr/bin/pg_dropcluster
+EOF
+
+chmod 440 /etc/sudoers.d/monitor
+print_success "Permissões do usuário monitor configuradas (sudo sem senha)"
+
+# 2. Configurar .bashrc do monitor (com controle)
 cat > /home/monitor/.bashrc << 'EOF'
 # ============================================================
-# INICIAR MONITOR CGNAT AUTOMATICAMENTE (COM SLEEP)
+# INICIAR MONITOR CGNAT (COM CONTROLE - EVITA LOOP)
 # ============================================================
-if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
+if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -z "$CGNAT_MONITOR_RAN" ]; then
+    export CGNAT_MONITOR_RAN=1
     clear
     echo "⏳ Aguardando serviços iniciarem (20 segundos)..."
     sleep 20
     /usr/local/bin/monitor_cgnat.sh -d
+    unset CGNAT_MONITOR_RAN
 fi
 EOF
 
 chown monitor:monitor /home/monitor/.bashrc
-print_success ".bashrc do monitor configurado (sleep 20s)"
+print_success ".bashrc do monitor configurado (sleep 20s + controle)"
 
 # 3. Configurar login automático no tty1
 mkdir -p /etc/systemd/system/getty@tty1.service.d/
@@ -4669,32 +4693,14 @@ EOF
 
 print_success "Login automático configurado no tty1"
 
-# 4. Adicionar sleep no SSH (root) - SUBSTITUINDO a configuração anterior
-# Primeiro remover a linha antiga se existir
-sed -i '/INICIAR MONITORAMENTO CGNAT/,/fi/d' /root/.bashrc 2>/dev/null || true
-
-# Adicionar a nova configuração com sleep
-cat >> /root/.bashrc << 'EOF'
-
-# ============================================================
-# INICIAR MONITOR CGNAT NO SSH (COM SLEEP)
-# ============================================================
-if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -n "$SSH_TTY" ]; then
-    echo "⏳ Aguardando serviços iniciarem (15 segundos)..."
-    sleep 15
-    /usr/local/bin/monitor_cgnat.sh -d
-fi
-EOF
-print_success "SSH configurado com sleep de 15s"
-
-# 5. Reiniciar getty
+# 4. Reiniciar getty
 systemctl restart getty@tty1.service
 
 print_success "✅ Monitor configurado no console físico!"
 print_info "🔹 Console: sleep 20s antes de iniciar"
 print_info "🔹 SSH: sleep 15s antes de iniciar"
-print_info "🔹 Para sair do monitor: Ctrl+C"
-print_info "🔹 SSH continua normal"
+print_info "🔹 Ctrl+C: NÃO volta automaticamente"
+print_info "🔹 Usuário monitor tem permissão sudo sem senha"
 
 # ============================================================
 # INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
@@ -4703,7 +4709,9 @@ print_info "Iniciando monitoramento em 10 segundos..."
 sleep 10
 
 # Executar o monitor
+export CGNAT_MONITOR_RAN=1
 /usr/local/bin/monitor_cgnat.sh -d
+unset CGNAT_MONITOR_RAN
 
 # ============================================================
 # FIM DO SCRIPT
