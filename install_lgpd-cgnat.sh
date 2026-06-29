@@ -39,18 +39,18 @@ check_root() {
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-DB_PASS_CGNAT="Abc@00000000"
-DB_PASS_PARSER="Abc@00000000"
-MK_AUTH_IP="172.31.254.2"
+DB_PASS_CGNAT="Wbt@07717125"
+DB_PASS_PARSER="Wbt@07717125"
+MK_AUTH_IP="172.31.255.2"
 MK_AUTH_USER="root"
-MK_AUTH_PASS="000000000@Abcd"
+MK_AUTH_PASS="25077171@Mlss"
 MK_AUTH_DB_PASS="vertrigo"
-CISCO_IP="192.168.100.1"
+CISCO_IP="190.196.243.250"
 CISCO_USER="admin"
-CISCO_PASS="Abc00000"
+CISCO_PASS="Wbt077171"
 TIMEZONE="America/Recife"
-TEL_TOKEN="SEU_TOKEN_TELEGRAM"
-TEL_CHAT_ID="SEU_ID_CHANNEL"
+TEL_TOKEN="8770565011:AAFoGTqjtVb06WFyCvBG-jF_9DDuNSapGik"
+TEL_CHAT_ID="-1003792217019"
 TEL_ENVIO="SIM"
 MAX_TENTATIVAS="3"
 
@@ -216,14 +216,37 @@ fi
 print_success "Pacotes instalados"
 
 # ============================================================
-# 4.5. FIXAR VERSÃO DO POSTGRESQL
+# 4.5. FIXAR VERSÃO DO POSTGRESQL (COM REMOÇÃO DO 17)
 # ============================================================
 print_header "4.5. FIXANDO VERSÃO DO POSTGRESQL"
 
-# Bloquear upgrades do PostgreSQL
-apt-mark hold postgresql-15 postgresql-client-15 postgresql-contrib-15 2>/dev/null || true
+# ============================================================
+# REMOVER POSTGRESQL 17 (PADRÃO DO DEBIAN 13)
+# ============================================================
+print_info "Verificando PostgreSQL 17 (padrão do Debian 13)..."
 
-# Impedir instalação de outras versões
+# Parar e remover cluster 17 se existir
+if pg_lsclusters 2>/dev/null | grep -q "17.*online"; then
+    print_info "Parando cluster PostgreSQL 17..."
+    systemctl stop postgresql@17-main 2>/dev/null
+    pg_dropcluster 17 main --stop 2>/dev/null
+fi
+
+# Remover pacotes do PostgreSQL 17
+if dpkg -l 2>/dev/null | grep -q postgresql-17; then
+    print_info "Removendo PostgreSQL 17..."
+    apt remove --purge -y postgresql-17 postgresql-client-17 2>/dev/null || true
+    apt autoremove -y 2>/dev/null || true
+    print_success "PostgreSQL 17 removido"
+else
+    print_info "PostgreSQL 17 não está instalado"
+fi
+
+# ============================================================
+# BLOQUEAR POSTGRESQL 17 PARA SEMPRE
+# ============================================================
+print_info "Bloqueando PostgreSQL 17..."
+
 cat > /etc/apt/preferences.d/postgresql-hold << 'EOF'
 Package: postgresql-16*
 Pin: version *
@@ -240,9 +263,32 @@ Pin-Priority: -1
 Package: postgresql-client-17*
 Pin: version *
 Pin-Priority: -1
+
+Package: postgresql-16-doc*
+Pin: version *
+Pin-Priority: -1
+
+Package: postgresql-17-doc*
+Pin: version *
+Pin-Priority: -1
 EOF
 
-print_success "Versão do PostgreSQL fixada (15)"
+# ============================================================
+# FIXAR POSTGRESQL 15
+# ============================================================
+print_info "Fixando PostgreSQL 15..."
+apt-mark hold postgresql-15 postgresql-client-15 postgresql-contrib-15 2>/dev/null || true
+
+print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17 removido/bloqueado"
+
+# ============================================================
+# VERIFICAR SE PORTAS ESTÃO LIVRES
+# ============================================================
+print_info "Verificando porta 5432..."
+if ss -tlnp 2>/dev/null | grep -q ":5432"; then
+    print_warning "Porta 5432 ocupada. Aguardando liberação..."
+    sleep 3
+fi
 
 # ============================================================
 # 5. CRIAR DIRETÓRIOS
