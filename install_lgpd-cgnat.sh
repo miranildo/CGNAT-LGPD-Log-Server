@@ -4573,5 +4573,62 @@ echo "📅 $(date)"
 echo "============================================================"
 
 # ============================================================
+# SLEEP DE 5 SEGUNDOS (PARA O USUÁRIO LER A MENSAGEM)
+# ============================================================
+echo ""
+echo "⏳ Aguarde 5 segundos para iniciar o monitoramento..."
+sleep 5
+
+# ============================================================
+# 19. CONFIGURAR INICIALIZAÇÃO AUTOMÁTICA DO MONITOR
+# ============================================================
+print_header "19. CONFIGURANDO INICIALIZAÇÃO AUTOMÁTICA DO MONITOR"
+
+print_info "Configurando monitor para iniciar automaticamente ao abrir o terminal..."
+
+# Verificar se o arquivo .bashrc existe
+if [ -f /root/.bashrc ]; then
+    # Verificar se já foi adicionado antes
+    if ! grep -q "INICIAR MONITORAMENTO CGNAT" /root/.bashrc; then
+        cat >> /root/.bashrc << 'EOF'
+
+# ============================================================
+# INICIAR MONITORAMENTO CGNAT AUTOMATICAMENTE
+# ============================================================
+if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
+    /usr/local/bin/monitor_cgnat.sh -d
+fi
+EOF
+        print_success "✅ Monitor configurado para iniciar automaticamente!"
+        print_info "🔹 Para testar: source /root/.bashrc"
+        print_info "🔹 Para sair do monitor: Ctrl+C"
+    else
+        print_info "ℹ️  Monitor já está configurado no .bashrc"
+    fi
+else
+    print_warning "⚠️  Arquivo /root/.bashrc não encontrado. Criando..."
+    touch /root/.bashrc
+    cat >> /root/.bashrc << 'EOF'
+
+# ============================================================
+# INICIAR MONITORAMENTO CGNAT AUTOMATICAMENTE
+# ============================================================
+if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
+    /usr/local/bin/monitor_cgnat.sh -d
+fi
+EOF
+    print_success "✅ Monitor configurado para iniciar automaticamente!"
+fi
+
+# ============================================================
+# INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
+# ============================================================
+print_info "Iniciando monitoramento em 3 segundos..."
+sleep 3
+
+# Executar o monitor em background (ou foreground)
+/usr/local/bin/monitor_cgnat.sh -d
+
+# ============================================================
 # FIM DO SCRIPT
 # ============================================================
