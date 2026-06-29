@@ -238,6 +238,7 @@ print_info "Removendo PostgreSQL 17/18..."
 # Parar clusters
 for VER in 17 18; do
     if pg_lsclusters 2>/dev/null | grep -q "${VER}.*online"; then
+        print_info "Parando cluster PostgreSQL ${VER}..."
         systemctl stop postgresql@${VER}-main 2>/dev/null
         pg_dropcluster ${VER} main --stop 2>/dev/null
     fi
@@ -246,6 +247,7 @@ done
 # Remover pacotes com força
 for VER in 17 18; do
     if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
+        print_info "Removendo PostgreSQL ${VER}..."
         DEBIAN_FRONTEND=noninteractive dpkg --remove --force-remove-reinstreq postgresql-${VER} 2>/dev/null || true
         DEBIAN_FRONTEND=noninteractive dpkg --remove --force-remove-reinstreq postgresql-client-${VER} 2>/dev/null || true
     fi
@@ -300,12 +302,43 @@ EOF
 print_info "Fixando PostgreSQL 15..."
 apt-mark hold postgresql-15 postgresql-client-15 2>/dev/null || true
 
-print_success "✅ PostgreSQL 15 fixado! PostgreSQL 17/18 removidos e bloqueados"
+# Verificar se postgresql-contrib-15 existe
+if apt-cache show postgresql-contrib-15 2>/dev/null | grep -q "Package: postgresql-contrib-15"; then
+    apt-mark hold postgresql-contrib-15 2>/dev/null || true
+else
+    print_info "postgresql-contrib-15 não disponível - ignorando hold"
+fi
+
+print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17/18 removidos/bloqueados"
+
+# ============================================================
+# VERIFICAR SE A PORTA 5432 ESTÁ LIVRE
+# ============================================================
+print_info "Verificando porta 5432..."
+
+# Verificar se a porta 5432 está ocupada
+if ss -tlnp 2>/dev/null | grep -q ":5432"; then
+    print_warning "⚠️ Porta 5432 ocupada! Liberando..."
+    fuser -k 5432/tcp 2>/dev/null
+    sleep 2
+    
+    # Verificar novamente se liberou
+    if ss -tlnp 2>/dev/null | grep -q ":5432"; then
+        print_error "❌ Não foi possível liberar a porta 5432!"
+        print_info "Verifique manualmente: ss -tlnp | grep 5432"
+    else
+        print_success "✅ Porta 5432 liberada com sucesso!"
+    fi
+else
+    print_success "✅ Porta 5432 disponível!"
+fi
 
 # ============================================================
 # VERIFICAR SE O POSTGRESQL 15 ESTÁ RODANDO
 # ============================================================
-if ! pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
+if pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
+    print_success "✅ PostgreSQL 15 já está rodando!"
+else
     print_info "Criando cluster PostgreSQL 15..."
     pg_createcluster 15 main --start -u postgres -p 5432
     systemctl start postgresql@15-main
@@ -317,7 +350,7 @@ fi
 print_info "Verificando instalação final..."
 echo ""
 echo "📊 Pacotes PostgreSQL instalados:"
-dpkg -l 2>/dev/null | grep postgresql | grep -E "postgresql-[0-9]+" || echo "✅ Apenas PostgreSQL 15 instalado"
+dpkg -l 2>/dev/null | grep postgresql | grep -E "postgresql-[0-9]+" || print_info "✅ Apenas PostgreSQL 15 instalado"
 echo ""
 echo "📊 Clusters PostgreSQL:"
 pg_lsclusters
