@@ -3716,15 +3716,17 @@ parser_esta_rodando() {
         return 1
     fi
     
-    # 2. Verificar se há logs recentes (últimos 60 segundos)
+    # 2. Verificar se o processo do parser existe
+    if ! pgrep -f "python.*cgnat_parser.py" > /dev/null; then
+        return 1
+    fi
+    
+    # 3. Verificar se há logs recentes (últimos 60 segundos)
     ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
     
+    # Se não tem logs ainda, considera rodando (acabou de iniciar)
     if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
-        # Sem logs ainda, verificar se o processo existe
-        if pgrep -f "python.*cgnat_parser.py" > /dev/null; then
-            return 0
-        fi
-        return 1
+        return 0
     fi
     
     # Converter para timestamp
@@ -3732,10 +3734,11 @@ parser_esta_rodando() {
     AGORA=$(date +%s)
     DIFERENCA=$((AGORA - ULTIMO_TIMESTAMP))
     
-    # Se o último log foi há menos de 60 segundos, o parser está ativo
+    # Se o último log foi há menos de 60 segundos, está rodando
     if [ $DIFERENCA -lt 60 ]; then
         return 0
     else
+        # Se não tem logs há mais de 60 segundos, o parser travou
         return 1
     fi
 }
