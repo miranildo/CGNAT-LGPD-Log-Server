@@ -221,21 +221,14 @@ print_success "Pacotes instalados"
 # ============================================================
 print_header "4.5. FIXANDO VERSÃO DO POSTGRESQL"
 
-# ============================================================
-# REMOVER METAPACOTE POSTGRESQL (QUE PUXA O 17)
-# ============================================================
+# REMOVER METAPACOTE
 print_info "Removendo metapacote 'postgresql'..."
-
 if dpkg -l 2>/dev/null | grep -q "^ii  postgresql "; then
     DEBIAN_FRONTEND=noninteractive dpkg -r --force-depends postgresql 2>/dev/null || true
 fi
 
-# ============================================================
-# REMOVER POSTGRESQL 17 E 18
-# ============================================================
+# REMOVER 17 E 18
 print_info "Removendo PostgreSQL 17/18..."
-
-# Parar clusters
 for VER in 17 18; do
     if pg_lsclusters 2>/dev/null | grep -q "${VER}.*online"; then
         print_info "Parando cluster PostgreSQL ${VER}..."
@@ -244,7 +237,6 @@ for VER in 17 18; do
     fi
 done
 
-# Remover pacotes com força
 for VER in 17 18; do
     if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
         print_info "Removendo PostgreSQL ${VER}..."
@@ -253,19 +245,14 @@ for VER in 17 18; do
     fi
 done
 
-# ============================================================
-# CORRIGIR PACOTES QUEBRADOS
-# ============================================================
+# CORRIGIR PACOTES
 print_info "Corrigindo pacotes quebrados..."
 apt --fix-broken install -y 2>/dev/null || true
 apt autoremove -y 2>/dev/null || true
 apt autoclean -y 2>/dev/null || true
 
-# ============================================================
-# BLOQUEAR POSTGRESQL 16, 17 E 18
-# ============================================================
+# BLOQUEAR 16/17/18
 print_info "Bloqueando PostgreSQL 16, 17 e 18..."
-
 cat > /etc/apt/preferences.d/postgresql-hold << 'EOF'
 Package: postgresql-16*
 Pin: version *
@@ -296,13 +283,10 @@ Pin: version *
 Pin-Priority: -1
 EOF
 
-# ============================================================
 # FIXAR POSTGRESQL 15
-# ============================================================
 print_info "Fixando PostgreSQL 15..."
 apt-mark hold postgresql-15 postgresql-client-15 2>/dev/null || true
 
-# Verificar se postgresql-contrib-15 existe
 if apt-cache show postgresql-contrib-15 2>/dev/null | grep -q "Package: postgresql-contrib-15"; then
     apt-mark hold postgresql-contrib-15 2>/dev/null || true
 else
@@ -311,21 +295,14 @@ fi
 
 print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17/18 removidos/bloqueados"
 
-# ============================================================
-# VERIFICAR SE A PORTA 5432 ESTÁ LIVRE
-# ============================================================
+# VERIFICAR PORTA 5432
 print_info "Verificando porta 5432..."
-
-# Verificar se a porta 5432 está ocupada
 if ss -tlnp 2>/dev/null | grep -q ":5432"; then
     print_warning "⚠️ Porta 5432 ocupada! Liberando..."
     fuser -k 5432/tcp 2>/dev/null
     sleep 2
-    
-    # Verificar novamente se liberou
     if ss -tlnp 2>/dev/null | grep -q ":5432"; then
         print_error "❌ Não foi possível liberar a porta 5432!"
-        print_info "Verifique manualmente: ss -tlnp | grep 5432"
     else
         print_success "✅ Porta 5432 liberada com sucesso!"
     fi
@@ -333,20 +310,16 @@ else
     print_success "✅ Porta 5432 disponível!"
 fi
 
-# ============================================================
-# VERIFICAR SE O POSTGRESQL 15 ESTÁ RODANDO
-# ============================================================
-if pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
-    print_success "✅ PostgreSQL 15 já está rodando!"
-else
+# CRIAR CLUSTER 15 SE NÃO EXISTIR
+if ! pg_lsclusters 2>/dev/null | grep -q "15.*online"; then
     print_info "Criando cluster PostgreSQL 15..."
     pg_createcluster 15 main --start -u postgres -p 5432
     systemctl start postgresql@15-main
+else
+    print_success "✅ PostgreSQL 15 já está rodando!"
 fi
 
-# ============================================================
 # VERIFICAÇÃO FINAL
-# ============================================================
 print_info "Verificando instalação final..."
 echo ""
 echo "📊 Pacotes PostgreSQL instalados:"
