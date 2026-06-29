@@ -3692,36 +3692,6 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 BOLD='\033[1m'
 
-# ============================================================
-# FUNÇÃO: VERIFICAR SE O PARSER ESTÁ RODANDO
-# ============================================================
-parser_esta_rodando() {
-    # 1. Verificar se o processo do parser existe
-    if ! pgrep -f "python.*cgnat_parser.py" > /dev/null; then
-        return 1
-    fi
-    
-    # 2. Verificar se há logs nos últimos 60 segundos
-    ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
-    
-    if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
-        return 0
-    fi
-    
-    ULTIMO_TIMESTAMP=$(date -d "$ULTIMO_LOG" +%s 2>/dev/null || echo 0)
-    AGORA=$(date +%s)
-    DIFERENCA=$((AGORA - ULTIMO_TIMESTAMP))
-    
-    if [ $DIFERENCA -lt 60 ]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# ============================================================
-# DASHBOARD
-# ============================================================
 show_dashboard() {
     clear
     echo "============================================================"
@@ -3744,9 +3714,23 @@ show_dashboard() {
         echo -e "  ${RED}❌${NC} rsyslog: PARADO!"
     fi
     
-    # PARSER - usando a função
-    if parser_esta_rodando; then
-        echo -e "  ${GREEN}✅${NC} cgnat-parser: rodando"
+    # PARSER - VERIFICAÇÃO DIRETA
+    if pgrep -f "python.*cgnat_parser.py" > /dev/null; then
+        ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
+        
+        if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
+            echo -e "  ${GREEN}✅${NC} cgnat-parser: rodando (iniciando)"
+        else
+            ULTIMO_TIMESTAMP=$(date -d "$ULTIMO_LOG" +%s 2>/dev/null || echo 0)
+            AGORA=$(date +%s)
+            DIFERENCA=$((AGORA - ULTIMO_TIMESTAMP))
+            
+            if [ $DIFERENCA -lt 120 ]; then
+                echo -e "  ${GREEN}✅${NC} cgnat-parser: rodando"
+            else
+                echo -e "  ${RED}❌${NC} cgnat-parser: PARADO! (sem logs há ${DIFERENCA}s)"
+            fi
+        fi
     else
         echo -e "  ${RED}❌${NC} cgnat-parser: PARADO!"
     fi
@@ -3813,16 +3797,20 @@ show_dashboard() {
 
     # PARSER STATUS
     echo -e "${CYAN}🔹 PARSER:${NC}"
-    ULTIMAS_STATS=$(tail -3 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
-    if [ ! -z "$ULTIMAS_STATS" ]; then
-        CREATED=$(echo "$ULTIMAS_STATS" | grep -oP 'Created=\K[0-9]+' 2>/dev/null || echo "0")
-        DELETED=$(echo "$ULTIMAS_STATS" | grep -oP 'Deleted=\K[0-9]+' 2>/dev/null || echo "0")
-        CACHE_HITS=$(echo "$ULTIMAS_STATS" | grep -oP 'hits=\K[0-9]+' 2>/dev/null || echo "0")
-        CACHE_MISSES=$(echo "$ULTIMAS_STATS" | grep -oP 'misses=\K[0-9]+' 2>/dev/null || echo "0")
-        echo -e "  ${GREEN}✅${NC} Created=${CREATED}, Deleted=${DELETED}"
-        echo -e "  ${GREEN}✅${NC} Cache: hits=${CACHE_HITS}, misses=${CACHE_MISSES}"
+    if [ -f /var/log/cgnat/parser.log ] && [ -s /var/log/cgnat/parser.log ]; then
+        ULTIMAS_STATS=$(tail -10 /var/log/cgnat/parser.log 2>/dev/null | grep "Stats:" | tail -1)
+        if [ ! -z "$ULTIMAS_STATS" ]; then
+            CREATED=$(echo "$ULTIMAS_STATS" | grep -oP 'Created=\K[0-9]+' 2>/dev/null || echo "0")
+            DELETED=$(echo "$ULTIMAS_STATS" | grep -oP 'Deleted=\K[0-9]+' 2>/dev/null || echo "0")
+            CACHE_HITS=$(echo "$ULTIMAS_STATS" | grep -oP 'hits=\K[0-9]+' 2>/dev/null || echo "0")
+            CACHE_MISSES=$(echo "$ULTIMAS_STATS" | grep -oP 'misses=\K[0-9]+' 2>/dev/null || echo "0")
+            echo -e "  ${GREEN}✅${NC} Created=${CREATED}, Deleted=${DELETED}"
+            echo -e "  ${GREEN}✅${NC} Cache: hits=${CACHE_HITS}, misses=${CACHE_MISSES}"
+        else
+            echo -e "  ${YELLOW}⚠️${NC} Nenhuma estatística encontrada"
+        fi
     else
-        echo -e "  ${YELLOW}⚠️${NC} Aguardando..."
+        echo -e "  ${YELLOW}⚠️${NC} Aguardando log do parser..."
     fi
     echo ""
 
@@ -3854,9 +3842,6 @@ show_dashboard() {
     echo "============================================================"
 }
 
-# ============================================================
-# LOOP PRINCIPAL
-# ============================================================
 while true; do
     show_dashboard
     sleep 5
@@ -3864,7 +3849,7 @@ done
 EOF
 
 chmod +x /usr/local/bin/monitor_cgnat.sh
-print_success "✅ Script de monitoramento criado (versão final)"
+print_success "✅ Script de monitoramento criado"
 
 # Script de Monitoramento de espaço em disco Alertas Telegram
 print_header "CRIANDO SCRIPT DE ALERTA TELEGRAM"
