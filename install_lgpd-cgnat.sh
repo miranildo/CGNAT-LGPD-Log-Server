@@ -4753,24 +4753,14 @@ print_header "INICIANDO MONITORAMENTO"
 
 echo ""
 echo "⏳ O monitoramento será iniciado em 10 segundos..."
-echo "   Pressione qualquer tecla para CANCELAR"
+echo "   Pressione ${GREEN}Ctrl+C${NC} para CANCELAR"
 echo ""
 
-# Contagem regressiva com cancelamento
+# Contagem regressiva
 CONTADOR=10
 while [ $CONTADOR -gt 0 ]; do
-    echo -ne "\r   Aguardando ${CONTADOR} segundos... (pressione qualquer tecla para cancelar) "
-    
-    # Verificar se alguma tecla foi pressionada
-    read -t 1 -n 1 -s key 2>/dev/null
-    if [ ! -z "$key" ]; then
-        echo ""
-        echo "✅ Monitoramento CANCELADO pelo usuário."
-        echo "   Para iniciar manualmente: monitor_cgnat.sh -d"
-        echo ""
-        exit 0
-    fi
-    
+    echo -ne "\r   Aguardando ${CONTADOR} segundos... (Ctrl+C para cancelar) "
+    sleep 1
     CONTADOR=$((CONTADOR - 1))
 done
 
