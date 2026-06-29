@@ -4747,9 +4747,36 @@ print_info "🔹 Para sair do monitor: Ctrl+C"
 
 # ============================================================
 # INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
+# (COM CONTAGEM REGRESSIVA E CANCELAMENTO)
 # ============================================================
-print_info "Iniciando monitoramento em 10 segundos..."
-sleep 10
+print_header "INICIANDO MONITORAMENTO"
+
+echo ""
+echo "⏳ O monitoramento será iniciado em 10 segundos..."
+echo "   Pressione qualquer tecla para CANCELAR"
+echo ""
+
+# Contagem regressiva com cancelamento
+CONTADOR=10
+while [ $CONTADOR -gt 0 ]; do
+    echo -ne "\r   Aguardando ${CONTADOR} segundos... (pressione qualquer tecla para cancelar) "
+    
+    # Verificar se alguma tecla foi pressionada
+    read -t 1 -n 1 -s key 2>/dev/null
+    if [ ! -z "$key" ]; then
+        echo ""
+        echo "✅ Monitoramento CANCELADO pelo usuário."
+        echo "   Para iniciar manualmente: monitor_cgnat.sh -d"
+        echo ""
+        exit 0
+    fi
+    
+    CONTADOR=$((CONTADOR - 1))
+done
+
+echo ""
+echo "🚀 Iniciando monitoramento..."
+echo ""
 
 # Executar o monitor
 /usr/local/bin/monitor_cgnat.sh -d
