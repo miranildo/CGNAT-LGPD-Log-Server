@@ -3680,7 +3680,7 @@ print_header "15.12. CRIANDO SCRIPT DE MONITORAMENTO"
 cat > /usr/local/bin/monitor_cgnat.sh << 'EOF'
 #!/bin/bash
 # ============================================================
-# MONITOR CGNAT - VERSÃO DEFINITIVA
+# MONITORAMENTO CGNAT - VERSÃO DEFINITIVA
 # ============================================================
 
 RED='\033[0;31m'
@@ -3696,17 +3696,12 @@ BOLD='\033[1m'
 # FUNÇÃO: VERIFICAR SE O PARSER ESTÁ RODANDO
 # ============================================================
 parser_esta_rodando() {
-    # 1. Verificar se o serviço está rodando
-    if ! systemctl is-active --quiet cgnat-parser 2>/dev/null; then
-        return 1
-    fi
-    
-    # 2. Verificar se o processo existe
+    # 1. Verificar se o processo do parser existe (pgrep)
     if ! pgrep -f "python.*cgnat_parser.py" > /dev/null; then
         return 1
     fi
     
-    # 3. Verificar logs recentes (últimos 60 segundos)
+    # 2. Verificar se há logs nos últimos 60 segundos
     ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
     
     if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
@@ -3749,7 +3744,7 @@ show_dashboard() {
         echo -e "  ${RED}❌${NC} rsyslog: PARADO!"
     fi
     
-    # CHAMANDO A FUNÇÃO CORRETAMENTE
+    # CHAMADA DA FUNÇÃO CORRETA
     if parser_esta_rodando; then
         echo -e "  ${GREEN}✅${NC} cgnat-parser: rodando"
     else
