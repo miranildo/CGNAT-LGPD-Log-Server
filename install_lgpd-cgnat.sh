@@ -245,6 +245,18 @@ for VER in 17 18; do
     fi
 done
 
+# ============================================================
+# REMOVER RESÍDUOS
+# ============================================================
+print_info "Removendo resíduos do PostgreSQL 17/18..."
+for VER in 17 18; do
+    if dpkg -l 2>/dev/null | grep -q "rc  postgresql-${VER}"; then
+        print_info "Removendo resíduos do PostgreSQL ${VER}..."
+        dpkg --purge postgresql-${VER} 2>/dev/null || true
+        dpkg --purge postgresql-client-${VER} 2>/dev/null || true
+    fi
+done
+
 # CORRIGIR PACOTES
 print_info "Corrigindo pacotes quebrados..."
 apt --fix-broken install -y 2>/dev/null || true
@@ -329,10 +341,6 @@ echo "📊 Clusters PostgreSQL:"
 pg_lsclusters
 echo ""
 echo "📊 Status do PostgreSQL 15:"
-# Remover completamente o metapacote residual
-dpkg --purge postgresql 2>/dev/null
-# Verificar novamente
-dpkg -l | grep postgresql
 systemctl status postgresql@15-main --no-pager | head -5
 
 print_success "✅ PostgreSQL 15 fixado com sucesso!"
