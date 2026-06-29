@@ -3672,10 +3672,15 @@ chmod +x /usr/local/bin/clean_shm.sh
 print_success "Scripts criados com sucesso!"
 
 # Script de Monitoramento da saúde do programa
+# ============================================================
+# 15.12. CRIAR SCRIPT DE MONITORAMENTO (COM DETECÇÃO INTELIGENTE)
+# ============================================================
+print_header "15.12. CRIANDO SCRIPT DE MONITORAMENTO"
+
 cat > /usr/local/bin/monitor_cgnat.sh << 'EOF'
 #!/bin/bash
 # ============================================================
-# MONITORAMENTO DEFINITIVO - CGNAT LGPD (VERSÃO FINAL)
+# MONITORAMENTO DEFINITIVO - CGNAT LGPD (COM DETECÇÃO INTELIGENTE)
 # ============================================================
 
 # Cores
@@ -3688,7 +3693,6 @@ MAGENTA='\033[0;35m'
 NC='\033[0m'
 BOLD='\033[1m'
 
-# Funções de ajuda
 show_help() {
     echo "============================================================"
     echo "  📊 MONITORAMENTO CGNAT - Comandos"
@@ -3703,7 +3707,39 @@ show_help() {
     echo "============================================================"
 }
 
-# Função para obter espaço em disco de forma robusta
+# ============================================================
+# FUNÇÃO: VERIFICAR SE O PARSER ESTÁ RODANDO DE VERDADE
+# ============================================================
+parser_esta_rodando() {
+    # 1. Verificar se o serviço está rodando
+    if ! systemctl is-active --quiet cgnat-parser 2>/dev/null; then
+        return 1
+    fi
+    
+    # 2. Verificar se há logs recentes (últimos 60 segundos)
+    ULTIMO_LOG=$(sudo -u postgres psql -d cgnat_logs -t -c "SELECT MAX(data_hora) FROM cgnat_logs;" 2>/dev/null | xargs)
+    
+    if [ -z "$ULTIMO_LOG" ] || [ "$ULTIMO_LOG" = " " ]; then
+        # Sem logs ainda, verificar se o processo existe
+        if pgrep -f "python.*cgnat_parser.py" > /dev/null; then
+            return 0
+        fi
+        return 1
+    fi
+    
+    # Converter para timestamp
+    ULTIMO_TIMESTAMP=$(date -d "$ULTIMO_LOG" +%s 2>/dev/null || echo 0)
+    AGORA=$(date +%s)
+    DIFERENCA=$((AGORA - ULTIMO_TIMESTAMP))
+    
+    # Se o último log foi há menos de 60 segundos, o parser está ativo
+    if [ $DIFERENCA -lt 60 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 get_disk_info() {
     local mount_point="$1"
     local info=$(df -h "$mount_point" | tail -1)
@@ -3713,7 +3749,6 @@ get_disk_info() {
     echo "$usado|$total|$percent"
 }
 
-# Função: Dashboard
 show_dashboard() {
     clear
     echo "============================================================"
@@ -3724,10 +3759,19 @@ show_dashboard() {
     # 1. Serviços
     echo -e "${CYAN}🔹 SERVIÇOS:${NC}"
     for svc in postgresql@15-main rsyslog cgnat-parser apache2; do
-        if systemctl is-active --quiet $svc 2>/dev/null; then
-            echo -e "  ${GREEN}✅${NC} $svc: rodando"
+        if [ "$svc" = "cgnat-parser" ]; then
+            # Usar detecção inteligente para o parser
+            if parser_esta_rodando; then
+                echo -e "  ${GREEN}✅${NC} $svc: rodando"
+            else
+                echo -e "  ${RED}❌${NC} $svc: PARADO!"
+            fi
         else
-            echo -e "  ${RED}❌${NC} $svc: PARADO!"
+            if systemctl is-active --quiet $svc 2>/dev/null; then
+                echo -e "  ${GREEN}✅${NC} $svc: rodando"
+            else
+                echo -e "  ${RED}❌${NC} $svc: PARADO!"
+            fi
         fi
     done
     echo ""
@@ -3765,10 +3809,8 @@ show_dashboard() {
     echo -e "  ${MAGENTA}🗄️${NC} Banco: ${DB_SIZE:-N/A}"
     echo ""
 
-    # 4. Autovacuum (CORRIGIDO)
+    # 4. Autovacuum
     echo -e "${CYAN}🔹 AUTOVACUUM:${NC}"
-    
-    # Usar formato CSV para evitar problemas com caracteres especiais
     AUTOVACUUM_DATA=$(sudo -u postgres psql -d cgnat_logs -t -A -F'|' -c "
     SELECT 
         relname,
@@ -3853,7 +3895,6 @@ show_dashboard() {
     echo "============================================================"
 }
 
-# Função: Logs em tempo real
 show_logs() {
     echo "============================================================"
     echo "   📋 LOGS EM TEMPO REAL - CGNAT"
@@ -3884,7 +3925,6 @@ show_logs() {
     done
 }
 
-# Função: Diagnóstico rápido
 quick_check() {
     echo "============================================================"
     echo "   ⚡ DIAGNÓSTICO RÁPIDO - $(date '+%d/%m/%Y %H:%M:%S')"
@@ -3893,10 +3933,18 @@ quick_check() {
     
     echo "🔹 SERVIÇOS:"
     for svc in postgresql@15-main rsyslog cgnat-parser apache2; do
-        if systemctl is-active --quiet $svc 2>/dev/null; then
-            echo "  ✅ $svc"
+        if [ "$svc" = "cgnat-parser" ]; then
+            if parser_esta_rodando; then
+                echo "  ✅ $svc"
+            else
+                echo "  ❌ $svc"
+            fi
         else
-            echo "  ❌ $svc"
+            if systemctl is-active --quiet $svc 2>/dev/null; then
+                echo "  ✅ $svc"
+            else
+                echo "  ❌ $svc"
+            fi
         fi
     done
     echo ""
@@ -3948,8 +3996,7 @@ esac
 EOF
 
 chmod +x /usr/local/bin/monitor_cgnat.sh
-
-print_success "Scripts criados com sucesso!"
+print_success "Script de monitoramento criado com detecção inteligente do parser"
 
 # Script de Monitoramento de espaço em disco Alertas Telegram
 print_header "CRIANDO SCRIPT DE ALERTA TELEGRAM"
