@@ -217,36 +217,38 @@ fi
 print_success "Pacotes instalados"
 
 # ============================================================
-# 4.5. FIXAR VERSÃO DO POSTGRESQL (COM REMOÇÃO DO 17)
+# 4.5. FIXAR VERSÃO DO POSTGRESQL (BLOQUEAR 16, 17 E 18)
 # ============================================================
 print_header "4.5. FIXANDO VERSÃO DO POSTGRESQL"
 
 # ============================================================
-# REMOVER POSTGRESQL 17 (PADRÃO DO DEBIAN 13)
+# REMOVER POSTGRESQL 17 E 18 (PADRÃO DO DEBIAN 13)
 # ============================================================
-print_info "Verificando PostgreSQL 17 (padrão do Debian 13)..."
+print_info "Verificando PostgreSQL 17 e 18 (padrão do Debian 13)..."
 
-# Parar e remover cluster 17 se existir
-if pg_lsclusters 2>/dev/null | grep -q "17.*online"; then
-    print_info "Parando cluster PostgreSQL 17..."
-    systemctl stop postgresql@17-main 2>/dev/null
-    pg_dropcluster 17 main --stop 2>/dev/null
-fi
+# Parar e remover clusters 17 e 18
+for VER in 17 18; do
+    if pg_lsclusters 2>/dev/null | grep -q "${VER}.*online"; then
+        print_info "Parando cluster PostgreSQL ${VER}..."
+        systemctl stop postgresql@${VER}-main 2>/dev/null
+        pg_dropcluster ${VER} main --stop 2>/dev/null
+    fi
+done
 
-# Remover pacotes do PostgreSQL 17
-if dpkg -l 2>/dev/null | grep -q postgresql-17; then
-    print_info "Removendo PostgreSQL 17..."
-    apt remove --purge -y postgresql-17 postgresql-client-17 2>/dev/null || true
-    apt autoremove -y 2>/dev/null || true
-    print_success "PostgreSQL 17 removido"
-else
-    print_info "PostgreSQL 17 não está instalado"
-fi
+# Remover pacotes do PostgreSQL 17 e 18
+for VER in 17 18; do
+    if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
+        print_info "Removendo PostgreSQL ${VER}..."
+        apt remove --purge -y postgresql-${VER} postgresql-client-${VER} 2>/dev/null || true
+    fi
+done
+apt autoremove -y 2>/dev/null || true
+print_success "PostgreSQL 17 e 18 removidos"
 
 # ============================================================
-# BLOQUEAR POSTGRESQL 17 PARA SEMPRE
+# BLOQUEAR POSTGRESQL 16, 17 E 18 PARA SEMPRE
 # ============================================================
-print_info "Bloqueando PostgreSQL 17..."
+print_info "Bloqueando PostgreSQL 16, 17 e 18..."
 
 cat > /etc/apt/preferences.d/postgresql-hold << 'EOF'
 Package: postgresql-16*
@@ -254,6 +256,10 @@ Pin: version *
 Pin-Priority: -1
 
 Package: postgresql-17*
+Pin: version *
+Pin-Priority: -1
+
+Package: postgresql-18*
 Pin: version *
 Pin-Priority: -1
 
@@ -265,6 +271,10 @@ Package: postgresql-client-17*
 Pin: version *
 Pin-Priority: -1
 
+Package: postgresql-client-18*
+Pin: version *
+Pin-Priority: -1
+
 Package: postgresql-16-doc*
 Pin: version *
 Pin-Priority: -1
@@ -272,15 +282,28 @@ Pin-Priority: -1
 Package: postgresql-17-doc*
 Pin: version *
 Pin-Priority: -1
+
+Package: postgresql-18-doc*
+Pin: version *
+Pin-Priority: -1
 EOF
 
 # ============================================================
-# FIXAR POSTGRESQL 15
+# FIXAR POSTGRESQL 15 (APENAS OS PACOTES QUE EXISTEM)
 # ============================================================
 print_info "Fixando PostgreSQL 15..."
-apt-mark hold postgresql-15 postgresql-client-15 postgresql-contrib-15 2>/dev/null || true
 
-print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17 removido/bloqueado"
+# Fixar apenas os pacotes que existem
+apt-mark hold postgresql-15 postgresql-client-15 2>/dev/null || true
+
+# Verificar se postgresql-contrib-15 existe
+if apt-cache show postgresql-contrib-15 2>/dev/null | grep -q "Package: postgresql-contrib-15"; then
+    apt-mark hold postgresql-contrib-15 2>/dev/null || true
+else
+    print_info "postgresql-contrib-15 não disponível - ignorando hold"
+fi
+
+print_success "Versão do PostgreSQL fixada (15)"
 
 # ============================================================
 # VERIFICAR SE PORTAS ESTÃO LIVRES
