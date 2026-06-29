@@ -4641,19 +4641,21 @@ else
     print_info "Usuário 'monitor' já existe"
 fi
 
-# 2. Configurar .bashrc do monitor
+# 2. Configurar .bashrc do monitor (com sleep)
 cat > /home/monitor/.bashrc << 'EOF'
 # ============================================================
-# INICIAR MONITOR CGNAT AUTOMATICAMENTE
+# INICIAR MONITOR CGNAT AUTOMATICAMENTE (COM SLEEP)
 # ============================================================
 if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
     clear
+    echo "⏳ Aguardando serviços iniciarem (20 segundos)..."
+    sleep 20
     /usr/local/bin/monitor_cgnat.sh -d
 fi
 EOF
 
 chown monitor:monitor /home/monitor/.bashrc
-print_success ".bashrc do monitor configurado"
+print_success ".bashrc do monitor configurado (sleep 20s)"
 
 # 3. Configurar login automático no tty1
 mkdir -p /etc/systemd/system/getty@tty1.service.d/
@@ -4667,13 +4669,31 @@ EOF
 
 print_success "Login automático configurado no tty1"
 
-# 4. Reiniciar getty
+# 4. Adicionar sleep no SSH (root) - SUBSTITUINDO a configuração anterior
+# Primeiro remover a linha antiga se existir
+sed -i '/INICIAR MONITORAMENTO CGNAT/,/fi/d' /root/.bashrc 2>/dev/null || true
+
+# Adicionar a nova configuração com sleep
+cat >> /root/.bashrc << 'EOF'
+
+# ============================================================
+# INICIAR MONITOR CGNAT NO SSH (COM SLEEP)
+# ============================================================
+if [ -f /usr/local/bin/monitor_cgnat.sh ] && [ -n "$SSH_TTY" ]; then
+    echo "⏳ Aguardando serviços iniciarem (15 segundos)..."
+    sleep 15
+    /usr/local/bin/monitor_cgnat.sh -d
+fi
+EOF
+print_success "SSH configurado com sleep de 15s"
+
+# 5. Reiniciar getty
 systemctl restart getty@tty1.service
 
 print_success "✅ Monitor configurado no console físico!"
-print_info "🔹 O monitor será exibido automaticamente após o boot"
-print_info "🔹 Para sair do monitor: Ctrl+C (volta ao shell do usuário monitor)"
-print_info "🔹 Para fazer login como root: exit e depois login"
+print_info "🔹 Console: sleep 20s antes de iniciar"
+print_info "🔹 SSH: sleep 15s antes de iniciar"
+print_info "🔹 Para sair do monitor: Ctrl+C"
 print_info "🔹 SSH continua normal"
 
 # ============================================================
@@ -4682,7 +4702,7 @@ print_info "🔹 SSH continua normal"
 print_info "Iniciando monitoramento em 10 segundos..."
 sleep 10
 
-# Executar o monitor em background (ou foreground)
+# Executar o monitor
 /usr/local/bin/monitor_cgnat.sh -d
 
 # ============================================================
