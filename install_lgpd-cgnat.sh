@@ -4625,51 +4625,62 @@ EOF
 fi
 
 # ============================================================
-# 19.1. CONFIGURAR MONITOR NO CONSOLE (BOOT + Ctrl+C)
+# 19.1. CONFIGURAR MONITOR NO CONSOLE (LOGIN AUTOMÁTICO)
 # ============================================================
 print_header "19.1. CONFIGURANDO MONITOR NO CONSOLE FÍSICO"
 
-print_info "Configurando monitor para iniciar automaticamente no boot..."
+print_info "Configurando monitor com login automático no console..."
 
-# Criar serviço systemd
-cat > /etc/systemd/system/cgnat-console.service << 'EOF'
-[Unit]
-Description=CGNAT Monitor on Console
-After=network.target postgresql.service
-Wants=postgresql.service
+# 1. Criar usuário monitor
+if ! id "monitor" &>/dev/null; then
+    print_info "Criando usuário 'monitor'..."
+    useradd -m -s /bin/bash monitor
+    passwd -d monitor
+    print_success "Usuário 'monitor' criado"
+else
+    print_info "Usuário 'monitor' já existe"
+fi
 
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/local/bin/monitor_cgnat.sh -d
-Restart=always
-RestartSec=5
-StandardInput=tty
-StandardOutput=tty
-TTYPath=/dev/tty1
-TTYReset=yes
-TTYVHangup=yes
-
-[Install]
-WantedBy=multi-user.target
+# 2. Configurar .bashrc do monitor
+cat > /home/monitor/.bashrc << 'EOF'
+# ============================================================
+# INICIAR MONITOR CGNAT AUTOMATICAMENTE
+# ============================================================
+if [ -f /usr/local/bin/monitor_cgnat.sh ]; then
+    clear
+    /usr/local/bin/monitor_cgnat.sh -d
+fi
 EOF
 
-# Habilitar e iniciar
-systemctl daemon-reload
-systemctl enable cgnat-console.service
-systemctl start cgnat-console.service
+chown monitor:monitor /home/monitor/.bashrc
+print_success ".bashrc do monitor configurado"
+
+# 3. Configurar login automático no tty1
+mkdir -p /etc/systemd/system/getty@tty1.service.d/
+
+cat > /etc/systemd/system/getty@tty1.service.d/override.conf << 'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin monitor --noclear %I $TERM
+Type=idle
+EOF
+
+print_success "Login automático configurado no tty1"
+
+# 4. Reiniciar getty
+systemctl restart getty@tty1.service
 
 print_success "✅ Monitor configurado no console físico!"
-print_info "🔹 Após o boot, o dashboard será exibido automaticamente"
-print_info "🔹 Para sair do dashboard: Ctrl+C"
-print_info "🔹 Para voltar ao dashboard: monitor_cgnat.sh -d"
+print_info "🔹 O monitor será exibido automaticamente após o boot"
+print_info "🔹 Para sair do monitor: Ctrl+C (volta ao shell do usuário monitor)"
+print_info "🔹 Para fazer login como root: exit e depois login"
 print_info "🔹 SSH continua normal"
 
 # ============================================================
 # INICIAR MONITORAMENTO AUTOMATICAMENTE APÓS A INSTALAÇÃO
 # ============================================================
-print_info "Iniciando monitoramento em 5 segundos..."
-sleep 5
+print_info "Iniciando monitoramento em 10 segundos..."
+sleep 10
 
 # Executar o monitor em background (ou foreground)
 /usr/local/bin/monitor_cgnat.sh -d
