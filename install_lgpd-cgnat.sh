@@ -233,13 +233,10 @@ for VER in 17 18; do
         systemctl stop postgresql@${VER}-main 2>/dev/null
         pg_dropcluster ${VER} main --stop 2>/dev/null
     fi
-done
-
-# Remover pacotes de forma SILENCIOSA (sem interação)
-# DEBIAN_FRONTEND=noninteractive evita perguntas durante a remoção
-for VER in 17 18; do
+    
+    # Remover pacotes mesmo que não estejam rodando
     if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
-        print_info "Removendo PostgreSQL ${VER}..."
+        print_info "Removendo PostgreSQL ${VER} (pacotes)..."
         DEBIAN_FRONTEND=noninteractive apt remove --purge -y \
             postgresql-${VER} \
             postgresql-client-${VER} \
@@ -251,6 +248,22 @@ done
 
 # Limpar dependências removidas
 apt autoremove -y 2>/dev/null || true
+
+# ============================================================
+# VERIFICAR SE O 17 OU 18 AINDA ESTÃO INSTALADOS
+# ============================================================
+for VER in 17 18; do
+    if dpkg -l 2>/dev/null | grep -q "postgresql-${VER}"; then
+        print_warning "PostgreSQL ${VER} ainda instalado! Forçando remoção..."
+        DEBIAN_FRONTEND=noninteractive apt remove --purge -y \
+            postgresql-${VER} \
+            postgresql-client-${VER} \
+            postgresql-${VER}-doc \
+            postgresql-client-${VER}-dbg \
+            2>/dev/null || true
+    fi
+done
+
 print_success "PostgreSQL 17 e 18 removidos"
 
 # ============================================================
@@ -314,13 +327,25 @@ fi
 print_success "Versão do PostgreSQL fixada (15) e PostgreSQL 17/18 removidos/bloqueados"
 
 # ============================================================
-# VERIFICAR SE PORTAS ESTÃO LIVRES
+# VERIFICAR SE PORTAS ESTÃO LIVRES (COM MENSAGEM CLARA)
 # ============================================================
 print_info "Verificando porta 5432..."
+
+# Verificar se a porta 5432 está ocupada
 if ss -tlnp 2>/dev/null | grep -q ":5432"; then
-    print_warning "Porta 5432 ocupada. Aguardando liberação..."
+    print_warning "⚠️ Porta 5432 ocupada! Liberando..."
     fuser -k 5432/tcp 2>/dev/null
-    sleep 3
+    sleep 2
+    
+    # Verificar novamente se liberou
+    if ss -tlnp 2>/dev/null | grep -q ":5432"; then
+        print_error "❌ Não foi possível liberar a porta 5432!"
+        print_info "Verifique manualmente: ss -tlnp | grep 5432"
+    else
+        print_success "✅ Porta 5432 liberada com sucesso!"
+    fi
+else
+    print_success "✅ Porta 5432 disponível!"
 fi
 
 # ============================================================
