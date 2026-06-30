@@ -3897,9 +3897,11 @@ show_dashboard() {
     fi
 
     echo ""
-    echo "============================================================"
+    echo "===================================================================="
     echo "  🔄 Atualiza a cada 5 segundos | Ctrl+C para sair"
-    echo "============================================================"
+    echo ""
+    echo "  ✅ Para retornar ao Dashboard use o comando: monitor_cgnat.sh -d"
+    echo "===================================================================="
 }
 
 while true; do
