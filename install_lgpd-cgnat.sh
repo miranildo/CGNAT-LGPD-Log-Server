@@ -4274,10 +4274,10 @@ if [ -z "$TOTAL_CLIENTES" ] || [ "$TOTAL_CLIENTES" -eq 0 ]; then
 fi
 
 # ============================================================
-# BARRA DE PROGRESSO COM TIMEOUT DE 60 SEGUNDOS
+# BARRA DE PROGRESSO COM TIMEOUT DE 300 SEGUNDOS
 # ============================================================
 ATUAL=0
-TIMEOUT=60
+TIMEOUT=300
 CONTADOR=0
 
 echo ""
