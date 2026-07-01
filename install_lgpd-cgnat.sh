@@ -93,12 +93,57 @@ check_root
 print_success "Usuário root verificado"
 
 # ============================================================
-# 2. CONFIGURAR TIMEZONE
+# 2. CONFIGURAR TIMEZONE E NTP
 # ============================================================
-print_header "2. CONFIGURANDO TIMEZONE"
+print_header "2. CONFIGURANDO TIMEZONE E NTP"
+
+# Instalar chrony se não estiver instalado
+if ! command -v chronyc &> /dev/null; then
+    print_info "Instalando chrony para sincronização de horário..."
+    apt update
+    apt install -y chrony
+fi
+
+# Configurar e iniciar chrony
+print_info "Configurando chrony..."
+systemctl enable chrony 2>/dev/null || true
+systemctl start chrony 2>/dev/null || true
+
+# Aguardar chrony iniciar
+sleep 3
+
+# Configurar timezone
+print_info "Configurando timezone para $TIMEZONE..."
 timedatectl set-timezone $TIMEZONE
 timedatectl set-ntp true
-print_success "Timezone configurado para $TIMEZONE"
+
+# Verificar status
+echo ""
+echo "📊 Status do sistema:"
+timedatectl status
+echo ""
+
+# Verificar se chrony está rodando
+if systemctl is-active --quiet chrony; then
+    print_success "✅ Chrony rodando e NTP configurado!"
+else
+    print_warning "⚠️ Chrony não está rodando. Verifique: systemctl status chrony"
+    print_info "Tentando iniciar novamente..."
+    systemctl restart chrony
+    sleep 2
+    if systemctl is-active --quiet chrony; then
+        print_success "✅ Chrony iniciado com sucesso!"
+    fi
+fi
+
+# Mostrar fontes de tempo
+if command -v chronyc &> /dev/null; then
+    echo ""
+    echo "📡 Fontes de tempo:"
+    chronyc sources -v 2>/dev/null || echo "  (aguardando sincronização...)"
+fi
+
+print_success "Timezone e NTP configurados com sucesso!"
 
 # ============================================================
 # 2.5. CONFIGURAR /dev/shm (16GB)
