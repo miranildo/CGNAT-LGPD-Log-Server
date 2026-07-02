@@ -27,16 +27,20 @@ chmod +x install_cgnat.sh
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-
-DB_PASS_CGNAT="ABC@00000000"
-DB_PASS_PARSER="ABC@0000000"
+DB_PASS_CGNAT="Abc@00000000"
+DB_PASS_PARSER="Abc@00000000"
 MK_AUTH_IP="172.31.254.2"
 MK_AUTH_USER="root"
-MK_AUTH_PASS="00000000@Abcd"
+MK_AUTH_PASS="000000000@Abcd"
 MK_AUTH_DB_PASS="vertrigo"
+MK_AUTH_DB_TABLE="mkradius"
 CISCO_IP="192.168.100.1"
-CISCO_USER="mkauth"
-CISCO_PASS="ABC@0000000"
+CISCO_USER="admin"
+CISCO_PASS="Abc00000"
 TIMEZONE="America/Recife"
+TEL_TOKEN="SEU_TOKEN_TELEGRAM"
+TEL_CHAT_ID="SEU_ID_TELEGRAM"
+TEL_ENVIO="SIM"
+MAX_TENTATIVAS="3"
 
 ```
